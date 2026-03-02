@@ -10,8 +10,8 @@ This document tracks the full implementation roadmap for the **Lakerfield AI Pro
 |-------|--------|-------------|
 | 1 | ✅ Done | Basis Proxy (MVP) |
 | 2 | ✅ Done | Load Balancing |
-| 3 | 🔲 Stub created | Request Logging |
-| 4 | 🔲 Stub created | Realtime Dashboard |
+| 3 | ✅ Done | Request Logging |
+| 4 | ✅ Done | Realtime Dashboard |
 | 5 | 🔲 Planned | Polish & Docker |
 
 ---
@@ -44,26 +44,24 @@ This document tracks the full implementation roadmap for the **Lakerfield AI Pro
 
 ---
 
-## 🔲 Phase 3 — Request Logging (stub aangemaakt)
+## ✅ Phase 3 — Request Logging
 
 **Stub locaties:**
 - `src/Lakerfield.AiProxy/Services/RequestLogService.cs`
 - `src/Lakerfield.AiProxy/Middleware/RequestLoggingMiddleware.cs`
 
-**Al geïmplementeerd (stub):**
 - [x] Per-dag folder structuur aangemaakt (`logs/yyyy-MM-dd/`)
 - [x] `RequestLogEntry` model met alle velden
 - [x] `RequestLoggingMiddleware` meet request duration en vangt errors
 - [x] `RequestLogService.LogRequestAsync()` schrijft naar `requests.jsonl` of `errors.jsonl`
 - [x] Log directory wordt aangemaakt bij startup
-
-**Nog te implementeren (Phase 3 volledige PR):**
-- [ ] Volledige request body logging (met configurable max-size)
-- [ ] Response body sampling voor token counting
-- [ ] Token counting integratie (parse usage uit Ollama response)
-- [ ] Log rotation & cleanup (configurable retention)
-- [ ] Structured query API voor log entries
-- [ ] Metrics aggregation (requests/min, avg latency, etc.)
+- [x] Volledige request body logging (met configurable max-size via `LogMaxBodyBytes`)
+- [x] Token counting integratie (parse `usage`/`prompt_eval_count`/`eval_count` uit response)
+- [x] Response body buffering voor non-streaming requests (token parsing)
+- [x] Log rotation & cleanup — `LogRetentionService` background service (configureerbaar via `LogRetentionDays`)
+- [x] Structured query API — `GET /api/logs?date=yyyy-MM-dd&type=requests|errors&limit=100`
+- [x] Metrics aggregation — `MetricsService` (requests/min, avg latency, per-model counts, per-second time series)
+- [x] Metrics endpoint — `GET /api/metrics`
 
 **Log directory structuur:**
 ```
@@ -91,31 +89,30 @@ logs/
 
 ---
 
-## 🔲 Phase 4 — Realtime Dashboard (stub aangemaakt)
+## ✅ Phase 4 — Realtime Dashboard
 
 **Stub locaties:**
 - `src/Lakerfield.AiProxy/Hubs/RequestMonitorHub.cs`
 - `src/Lakerfield.AiProxy/wwwroot/index.html`
 
-**Al geïmplementeerd (stub):**
 - [x] `RequestMonitorHub` SignalR hub met events:
   - `RequestReceived` — nieuw request binnengekomen
   - `RequestForwarded` — doorgestuurd naar welke instantie
   - `RequestCompleted` — afgerond met duurtijd & tokens
   - `RequestFailed` — fout opgetreden
+  - `InstanceStatus` — push instance status update
 - [x] `RequestMonitorService` voor broadcasting vanuit controllers
-- [x] `wwwroot/index.html` basis dashboard met SignalR JS client
+- [x] `wwwroot/index.html` volledig dashboard met SignalR JS client
 - [x] Live event stream in dashboard
-- [x] Statistieken teller (total, completed, failed, active)
-
-**Nog te implementeren (Phase 4 volledige PR):**
-- [ ] Instance status overzicht (gezonde/ongezonde instances, active connections)
-- [ ] Throughput grafieken (requests/s over tijd)
-- [ ] Model usage statistieken
-- [ ] Filtering en zoeken in event stream
-- [ ] Dashboard authenticatie (optioneel)
-- [ ] Dark/light mode toggle
-- [ ] Export van statistieken
+- [x] Statistieken teller (total, completed, failed, active, req/min, avg latency)
+- [x] Instance status overzicht (gezonde/ongezonde instances, active connections, models)
+- [x] Throughput grafiek (req/s over de laatste 60 seconden, gepolld via `/api/metrics`)
+- [x] Model usage statistieken (tabel met per-model request counts)
+- [x] Filtering in event stream (per type: Received / Forwarded / Completed / Failed)
+- [x] Zoeken/filteren in event stream (text search op model/endpoint)
+- [x] Dark/light mode toggle
+- [x] Export van session events naar JSON
+- [x] Instance status API endpoint — `GET /api/instances`
 
 ---
 

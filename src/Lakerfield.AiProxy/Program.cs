@@ -34,7 +34,9 @@ builder.Services.AddSingleton<OllamaRegistryService>();
 builder.Services.AddSingleton<LoadBalancerService>();
 builder.Services.AddSingleton<RequestLogService>();
 builder.Services.AddSingleton<RequestMonitorService>();
+builder.Services.AddSingleton<MetricsService>();
 builder.Services.AddHostedService<OllamaHealthCheckService>();
+builder.Services.AddHostedService<LogRetentionService>();
 
 // ASP.NET Core
 builder.Services.AddControllers();

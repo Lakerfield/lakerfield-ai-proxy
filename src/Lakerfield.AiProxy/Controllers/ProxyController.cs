@@ -174,7 +174,23 @@ public class ProxyController : ControllerBase
                 Response.Headers[header.Key] = header.Value.ToArray();
             }
 
-            await response.Content.CopyToAsync(Response.Body, HttpContext.RequestAborted);
+            int? inputTokens = null;
+            int? outputTokens = null;
+
+            if (!isStreaming)
+            {
+                // Buffer response to parse token usage before forwarding
+                var responseBody = await response.Content.ReadAsStringAsync(HttpContext.RequestAborted);
+                TryParseTokenUsage(responseBody, out inputTokens, out outputTokens);
+                await Response.Body.WriteAsync(Encoding.UTF8.GetBytes(responseBody), HttpContext.RequestAborted);
+            }
+            else
+            {
+                await response.Content.CopyToAsync(Response.Body, HttpContext.RequestAborted);
+            }
+
+            HttpContext.Items["InputTokens"] = inputTokens;
+            HttpContext.Items["OutputTokens"] = outputTokens;
 
             var logEntry = new RequestLogEntry
             {
@@ -184,6 +200,8 @@ public class ProxyController : ControllerBase
                 RoutedTo = instance.Name,
                 StatusCode = (int)response.StatusCode,
                 Streaming = isStreaming,
+                InputTokens = inputTokens,
+                OutputTokens = outputTokens,
             };
             await _monitor.BroadcastRequestCompleted(logEntry);
 
@@ -199,5 +217,32 @@ public class ProxyController : ControllerBase
         {
             _registry.DecrementConnections(instance.Name);
         }
+    }
+
+    private static void TryParseTokenUsage(string json, out int? inputTokens, out int? outputTokens)
+    {
+        inputTokens = null;
+        outputTokens = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            // Ollama native format: prompt_eval_count / eval_count
+            if (root.TryGetProperty("prompt_eval_count", out var pec))
+                inputTokens = pec.GetInt32();
+            if (root.TryGetProperty("eval_count", out var ec))
+                outputTokens = ec.GetInt32();
+
+            // OpenAI-compatible format: usage.prompt_tokens / usage.completion_tokens
+            if (root.TryGetProperty("usage", out var usage))
+            {
+                if (usage.TryGetProperty("prompt_tokens", out var pt))
+                    inputTokens = pt.GetInt32();
+                if (usage.TryGetProperty("completion_tokens", out var ct))
+                    outputTokens = ct.GetInt32();
+            }
+        }
+        catch { /* ignore parse errors */ }
     }
 }
