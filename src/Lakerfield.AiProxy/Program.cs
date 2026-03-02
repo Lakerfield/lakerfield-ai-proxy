@@ -42,6 +42,7 @@ builder.Services.AddSignalR();
 
 var app = builder.Build();
 
+app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseRouting();
