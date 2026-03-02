@@ -24,6 +24,7 @@ This document tracks the full implementation roadmap for the **Lakerfield AI Pro
   - `GET /v1/models` — geaggregeerde lijst van alle modellen
   - `POST /v1/chat/completions` — chat completions (gebruikt door Claude Code)
   - `POST /v1/completions` — text completions
+  - `POST /v1/responses` — OpenAI Responses API (gebruikt door nieuwere modellen)
   - `POST /api/chat` — Ollama native chat endpoint
   - `POST /api/generate` — Ollama native generate endpoint
 - [x] Streaming responses correct doorgestuurd (chunked transfer / SSE)
