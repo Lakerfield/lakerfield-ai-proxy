@@ -1,3 +1,4 @@
 <Solution>
+  <Project Path="Lakerfield.AiProxy.Tests/Lakerfield.AiProxy.Tests.csproj" />
   <Project Path="Lakerfield.AiProxy/Lakerfield.AiProxy.csproj" />
 </Solution>

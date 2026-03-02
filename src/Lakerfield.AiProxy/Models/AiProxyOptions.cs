@@ -11,6 +11,22 @@ public class AiProxyOptions
     /// <summary>Number of days to retain per-day log directories. 0 = keep forever.</summary>
     public int LogRetentionDays { get; set; } = 30;
     public List<OllamaInstanceConfig> OllamaInstances { get; set; } = new();
+
+    /// <summary>
+    /// Optional API key required on proxy endpoints via X-Api-Key header or ?api_key= query parameter.
+    /// Leave empty to disable authentication.
+    /// </summary>
+    public string ApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// CORS allowed origins for the dashboard. Use ["*"] to allow all origins (default).
+    /// </summary>
+    public List<string> CorsAllowedOrigins { get; set; } = new();
+
+    /// <summary>
+    /// Maximum number of requests per minute per IP. 0 = disabled (default).
+    /// </summary>
+    public int RateLimitRequestsPerMinute { get; set; } = 0;
 }
 
 public class OllamaInstanceConfig

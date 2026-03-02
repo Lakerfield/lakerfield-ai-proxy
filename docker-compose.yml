@@ -1,0 +1,75 @@
+services:
+  proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lakerfield-ai-proxy
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_URLS=http://+:8080
+      - AiProxy__LogDirectory=/app/logs
+      - AiProxy__LoadBalancingStrategy=LeastConnections
+      # Uncomment to require an API key on all proxy endpoints:
+      # - AiProxy__ApiKey=your-secret-key-here
+      # Uncomment to enable rate limiting (requests per minute per IP):
+      # - AiProxy__RateLimitRequestsPerMinute=60
+    volumes:
+      - proxy-logs:/app/logs
+    depends_on:
+      ollama-1:
+        condition: service_healthy
+      ollama-2:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - ai-network
+
+  ollama-1:
+    image: ollama/ollama:latest
+    container_name: ollama-1
+    volumes:
+      - ollama-1-data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - ai-network
+
+  ollama-2:
+    image: ollama/ollama:latest
+    container_name: ollama-2
+    volumes:
+      - ollama-2-data:/root/.ollama
+    ports:
+      - "11435:11434"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - ai-network
+
+volumes:
+  proxy-logs:
+  ollama-1-data:
+  ollama-2-data:
+
+networks:
+  ai-network:
+    driver: bridge

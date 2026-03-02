@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Lakerfield.AiProxy.Models;
@@ -30,6 +31,50 @@ public class LogsController : ControllerBase
     public IActionResult GetMetrics()
     {
         return Ok(_metrics.GetSummary());
+    }
+
+    // GET /metrics  — Prometheus text format
+    [HttpGet("/metrics")]
+    public IActionResult GetPrometheusMetrics()
+    {
+        var summary = _metrics.GetSummary();
+        var instances = _registry.GetAllInstances();
+
+        var sb = new StringBuilder();
+
+        sb.AppendLine("# HELP aiproxy_requests_total Total number of requests in the last 60 seconds");
+        sb.AppendLine("# TYPE aiproxy_requests_total gauge");
+        sb.AppendLine($"aiproxy_requests_total {summary.RequestsLast60Seconds}");
+
+        sb.AppendLine("# HELP aiproxy_requests_per_minute Requests per minute (60-second window)");
+        sb.AppendLine("# TYPE aiproxy_requests_per_minute gauge");
+        sb.AppendLine($"aiproxy_requests_per_minute {summary.RequestsPerMinute}");
+
+        sb.AppendLine("# HELP aiproxy_avg_latency_ms Average request latency in milliseconds");
+        sb.AppendLine("# TYPE aiproxy_avg_latency_ms gauge");
+        sb.AppendLine($"aiproxy_avg_latency_ms {summary.AvgLatencyMs:F2}");
+
+        sb.AppendLine("# HELP aiproxy_model_requests_total Cumulative requests per model");
+        sb.AppendLine("# TYPE aiproxy_model_requests_total counter");
+        foreach (var (model, count) in summary.ModelCounts)
+            sb.AppendLine($"aiproxy_model_requests_total{{model=\"{EscapeLabel(model)}\"}} {count}");
+
+        sb.AppendLine("# HELP aiproxy_instance_requests_total Cumulative requests per instance");
+        sb.AppendLine("# TYPE aiproxy_instance_requests_total counter");
+        foreach (var (instance, count) in summary.InstanceCounts)
+            sb.AppendLine($"aiproxy_instance_requests_total{{instance=\"{EscapeLabel(instance)}\"}} {count}");
+
+        sb.AppendLine("# HELP aiproxy_instance_healthy Whether the Ollama instance is healthy (1=healthy, 0=unhealthy)");
+        sb.AppendLine("# TYPE aiproxy_instance_healthy gauge");
+        foreach (var inst in instances)
+            sb.AppendLine($"aiproxy_instance_healthy{{instance=\"{EscapeLabel(inst.Name)}\"}} {(inst.IsHealthy ? 1 : 0)}");
+
+        sb.AppendLine("# HELP aiproxy_instance_active_connections Active connections per instance");
+        sb.AppendLine("# TYPE aiproxy_instance_active_connections gauge");
+        foreach (var inst in instances)
+            sb.AppendLine($"aiproxy_instance_active_connections{{instance=\"{EscapeLabel(inst.Name)}\"}} {inst.ActiveConnections}");
+
+        return Content(sb.ToString(), "text/plain; version=0.0.4; charset=utf-8");
     }
 
     // GET /api/instances
@@ -92,4 +137,7 @@ public class LogsController : ControllerBase
 
         return Ok(entries);
     }
+
+    private static string EscapeLabel(string value) =>
+        value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n");
 }
