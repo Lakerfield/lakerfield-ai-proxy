@@ -44,4 +44,7 @@ public class RequestMonitorService
 
     public Task BroadcastRequestFailed(string requestId, string error) =>
         _hubContext.Clients.All.SendAsync("RequestFailed", new { requestId, error });
+
+    public Task BroadcastInstanceStatus(IEnumerable<object> instances) =>
+        _hubContext.Clients.All.SendAsync("InstanceStatus", instances);
 }

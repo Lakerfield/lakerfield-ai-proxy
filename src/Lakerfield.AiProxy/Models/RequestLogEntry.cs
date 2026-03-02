@@ -12,5 +12,6 @@ public class RequestLogEntry
     public int? OutputTokens { get; set; }
     public int StatusCode { get; set; }
     public bool Streaming { get; set; }
+    public string? RequestBody { get; set; }
     public string? ErrorMessage { get; set; }
 }

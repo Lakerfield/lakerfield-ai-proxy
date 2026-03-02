@@ -1,112 +1,347 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lakerfield AI Proxy — Dashboard</title>
     <style>
+        :root[data-theme="dark"] {
+            --bg: #0f172a; --surface: #1e293b; --border: #334155;
+            --text: #e2e8f0; --muted: #64748b; --accent: #38bdf8;
+            --green: #22c55e; --red: #ef4444; --amber: #f59e0b;
+        }
+        :root[data-theme="light"] {
+            --bg: #f1f5f9; --surface: #ffffff; --border: #cbd5e1;
+            --text: #1e293b; --muted: #94a3b8; --accent: #0284c7;
+            --green: #16a34a; --red: #dc2626; --amber: #d97706;
+        }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
-        header { background: #1e293b; border-bottom: 1px solid #334155; padding: 1rem 2rem; display: flex; align-items: center; gap: 1rem; }
-        header h1 { font-size: 1.5rem; font-weight: 700; color: #38bdf8; }
-        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #ef4444; }
-        .status-dot.connected { background: #22c55e; animation: pulse 2s infinite; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; transition: background 0.2s, color 0.2s; }
+        header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+        header h1 { font-size: 1.4rem; font-weight: 700; color: var(--accent); flex: 1; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
+        .status-dot.connected { background: var(--green); animation: pulse 2s infinite; }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
-        main { padding: 2rem; max-width: 1200px; margin: 0 auto; }
-        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
-        .stat-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 1rem; }
-        .stat-card h3 { font-size: 0.75rem; text-transform: uppercase; color: #64748b; margin-bottom: 0.5rem; }
-        .stat-card .value { font-size: 2rem; font-weight: 700; color: #38bdf8; }
-        .events-section h2 { font-size: 1rem; font-weight: 600; color: #94a3b8; margin-bottom: 1rem; }
-        .events-list { background: #1e293b; border: 1px solid #334155; border-radius: 8px; height: 500px; overflow-y: auto; padding: 0.5rem; }
-        .event { padding: 0.5rem 0.75rem; border-bottom: 1px solid #0f172a; font-size: 0.875rem; display: flex; gap: 0.75rem; align-items: flex-start; }
+        .header-actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+        button.btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 0.375rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; transition: border-color 0.15s; }
+        button.btn:hover { border-color: var(--accent); color: var(--accent); }
+        main { padding: 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
+        section { margin-bottom: 1.75rem; }
+        section > .section-title { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.75rem; }
+
+        /* Stats */
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem; }
+        .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.875rem 1rem; }
+        .stat-card h3 { font-size: 0.7rem; text-transform: uppercase; color: var(--muted); margin-bottom: 0.35rem; }
+        .stat-card .value { font-size: 1.75rem; font-weight: 700; color: var(--accent); }
+        .stat-card .value.green { color: var(--green); }
+        .stat-card .value.red { color: var(--red); }
+        .stat-card .value.amber { color: var(--amber); }
+
+        /* Instances */
+        .instances-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.75rem; }
+        .instance-card { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--red); border-radius: 8px; padding: 0.875rem 1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+        .instance-card.healthy { border-left-color: var(--green); }
+        .instance-name { font-weight: 600; font-size: 0.9rem; }
+        .instance-url { font-size: 0.75rem; color: var(--muted); }
+        .instance-meta { display: flex; gap: 0.75rem; font-size: 0.75rem; }
+        .badge { padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
+        .badge-green { background: #14532d33; color: var(--green); }
+        .badge-red { background: #7f1d1d33; color: var(--red); }
+        .instance-models { font-size: 0.72rem; color: var(--muted); margin-top: 0.1rem; }
+
+        /* Charts */
+        .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 0.75rem; }
+        @media (max-width: 768px) { .charts-row { grid-template-columns: 1fr; } }
+        .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+        .chart-card h3 { font-size: 0.75rem; text-transform: uppercase; color: var(--muted); margin-bottom: 0.75rem; }
+        .throughput-chart { display: flex; align-items: flex-end; gap: 1px; height: 80px; overflow: hidden; }
+        .bar { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-width: 3px; opacity: 0.75; }
+        .model-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        .model-table td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); }
+        .model-table tr:last-child td { border-bottom: none; }
+        .model-table td:last-child { text-align: right; color: var(--accent); font-weight: 600; }
+
+        /* Events */
+        .events-header { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+        .events-title { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+        .filter-btns { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+        .filter-btn { padding: 0.2rem 0.6rem; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 0.75rem; cursor: pointer; transition: all 0.15s; }
+        .filter-btn.active { border-color: var(--accent); color: var(--accent); background: #0284c711; }
+        .search-box { margin-left: auto; padding: 0.25rem 0.6rem; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.8rem; min-width: 160px; }
+        .events-list { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; height: 420px; overflow-y: auto; padding: 0.5rem; }
+        .event { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--bg); font-size: 0.8rem; display: flex; gap: 0.6rem; align-items: flex-start; }
         .event:last-child { border-bottom: none; }
-        .event-time { color: #64748b; font-size: 0.75rem; white-space: nowrap; min-width: 80px; }
-        .event-type { padding: 0.125rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+        .event.hidden { display: none; }
+        .event-time { color: var(--muted); font-size: 0.72rem; white-space: nowrap; min-width: 72px; }
+        .event-type { padding: 0.1rem 0.45rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
         .type-received { background: #1e3a5f; color: #38bdf8; }
         .type-forwarded { background: #1a3a2a; color: #22c55e; }
         .type-completed { background: #1a2e1a; color: #4ade80; }
         .type-failed { background: #3a1a1a; color: #f87171; }
-        .event-detail { color: #94a3b8; flex: 1; word-break: break-all; }
-        .empty-state { text-align: center; color: #475569; padding: 3rem; }
+        :root[data-theme="light"] .type-received { background: #dbeafe; color: #1d4ed8; }
+        :root[data-theme="light"] .type-forwarded { background: #dcfce7; color: #15803d; }
+        :root[data-theme="light"] .type-completed { background: #bbf7d0; color: #166534; }
+        :root[data-theme="light"] .type-failed { background: #fee2e2; color: #b91c1c; }
+        .event-detail { color: var(--text); flex: 1; word-break: break-all; opacity: 0.85; }
+        .empty-state { text-align: center; color: var(--muted); padding: 3rem; font-size: 0.85rem; }
     </style>
 </head>
 <body>
     <header>
         <div class="status-dot" id="statusDot"></div>
         <h1>🤖 Lakerfield AI Proxy</h1>
-        <span id="statusText" style="color:#64748b;font-size:0.875rem;">Connecting...</span>
+        <span id="statusText" style="color:var(--muted);font-size:0.8rem;">Connecting...</span>
+        <div class="header-actions">
+            <button class="btn" id="themeToggle">☀️ Light</button>
+            <button class="btn" id="exportBtn">⬇ Export</button>
+        </div>
     </header>
 
     <main>
-        <div class="stats">
-            <div class="stat-card">
-                <h3>Total Requests</h3>
-                <div class="value" id="statTotal">0</div>
+        <!-- Overview stats -->
+        <section>
+            <div class="section-title">Overview</div>
+            <div class="stats">
+                <div class="stat-card">
+                    <h3>Total (session)</h3>
+                    <div class="value" id="statTotal">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Completed</h3>
+                    <div class="value green" id="statCompleted">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Failed</h3>
+                    <div class="value red" id="statFailed">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Active</h3>
+                    <div class="value amber" id="statActive">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Req / min</h3>
+                    <div class="value" id="statRpm">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Avg Latency</h3>
+                    <div class="value" id="statLatency">—</div>
+                </div>
             </div>
-            <div class="stat-card">
-                <h3>Completed</h3>
-                <div class="value" id="statCompleted" style="color:#22c55e">0</div>
-            </div>
-            <div class="stat-card">
-                <h3>Failed</h3>
-                <div class="value" id="statFailed" style="color:#ef4444">0</div>
-            </div>
-            <div class="stat-card">
-                <h3>Active</h3>
-                <div class="value" id="statActive" style="color:#f59e0b">0</div>
-            </div>
-        </div>
+        </section>
 
-        <div class="events-section">
-            <h2>Live Request Stream</h2>
-            <div class="events-list" id="eventsList">
-                <div class="empty-state">Waiting for requests...</div>
+        <!-- Instances -->
+        <section>
+            <div class="section-title">Instances</div>
+            <div class="instances-grid" id="instancesGrid">
+                <div class="empty-state" style="grid-column:1/-1;">Loading instances…</div>
             </div>
-        </div>
+        </section>
+
+        <!-- Throughput + Model usage -->
+        <section>
+            <div class="charts-row">
+                <div class="chart-card">
+                    <h3>Throughput — req/s (last 60 s)</h3>
+                    <div class="throughput-chart" id="throughputChart"></div>
+                </div>
+                <div class="chart-card">
+                    <h3>Model Usage</h3>
+                    <table class="model-table" id="modelTable">
+                        <tr><td colspan="2" style="color:var(--muted);text-align:center;padding:1rem 0;">No data yet</td></tr>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Live Event Stream -->
+        <section>
+            <div class="events-header">
+                <span class="events-title">Live Request Stream</span>
+                <div class="filter-btns">
+                    <button class="filter-btn active" data-filter="all">All</button>
+                    <button class="filter-btn" data-filter="Received">Received</button>
+                    <button class="filter-btn" data-filter="Forwarded">Forwarded</button>
+                    <button class="filter-btn" data-filter="Completed">Completed</button>
+                    <button class="filter-btn" data-filter="Failed">Failed</button>
+                </div>
+                <input class="search-box" id="searchBox" placeholder="Filter by model, endpoint…" type="text" />
+            </div>
+            <div class="events-list" id="eventsList">
+                <div class="empty-state">Waiting for requests…</div>
+            </div>
+        </section>
     </main>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
     <script>
+        // ── State ────────────────────────────────────────────────────────────────
         let total = 0, completed = 0, failed = 0, active = 0;
+        let activeFilter = 'all';
+        let searchText = '';
+        const eventLog = []; // kept for export
 
-        const statusDot = document.getElementById('statusDot');
+        // ── DOM refs ─────────────────────────────────────────────────────────────
+        const statusDot  = document.getElementById('statusDot');
         const statusText = document.getElementById('statusText');
         const eventsList = document.getElementById('eventsList');
 
-        function updateStats() {
-            document.getElementById('statTotal').textContent = total;
-            document.getElementById('statCompleted').textContent = completed;
-            document.getElementById('statFailed').textContent = failed;
-            document.getElementById('statActive').textContent = active;
+        // ── Utils ─────────────────────────────────────────────────────────────────
+        function escHtml(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         }
 
+        function updateStats() {
+            document.getElementById('statTotal').textContent     = total;
+            document.getElementById('statCompleted').textContent = completed;
+            document.getElementById('statFailed').textContent    = failed;
+            document.getElementById('statActive').textContent    = active;
+        }
+
+        // ── Events ────────────────────────────────────────────────────────────────
         function addEvent(type, detail) {
             const empty = eventsList.querySelector('.empty-state');
             if (empty) empty.remove();
 
             const now = new Date().toLocaleTimeString();
             const typeClass = {
-                'RequestReceived': 'type-received',
+                'RequestReceived':  'type-received',
                 'RequestForwarded': 'type-forwarded',
                 'RequestCompleted': 'type-completed',
-                'RequestFailed': 'type-failed'
+                'RequestFailed':    'type-failed'
             }[type] || 'type-received';
+            const label = type.replace('Request', '');
 
             const ev = document.createElement('div');
-            ev.className = 'event';
+            ev.className  = 'event';
+            ev.dataset.type   = label;
+            ev.dataset.detail = detail.toLowerCase();
             ev.innerHTML = `
                 <span class="event-time">${now}</span>
-                <span class="event-type ${typeClass}">${type.replace('Request', '')}</span>
-                <span class="event-detail">${detail}</span>
-            `;
+                <span class="event-type ${typeClass}">${label}</span>
+                <span class="event-detail">${escHtml(detail)}</span>`;
+            applyVisibility(ev);
             eventsList.insertBefore(ev, eventsList.firstChild);
-
-            while (eventsList.children.length > 200) {
+            while (eventsList.children.length > 200)
                 eventsList.removeChild(eventsList.lastChild);
-            }
+
+            eventLog.unshift({ type: label, detail, time: now });
+            if (eventLog.length > 1000) eventLog.pop();
         }
 
+        // ── Filtering ─────────────────────────────────────────────────────────────
+        function applyVisibility(el) {
+            const matchFilter = activeFilter === 'all' || el.dataset.type === activeFilter;
+            const matchSearch = !searchText || el.dataset.detail.includes(searchText);
+            el.classList.toggle('hidden', !(matchFilter && matchSearch));
+        }
+        function reapplyAllFilters() {
+            eventsList.querySelectorAll('.event').forEach(applyVisibility);
+        }
+
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                activeFilter = btn.dataset.filter;
+                reapplyAllFilters();
+            });
+        });
+
+        document.getElementById('searchBox').addEventListener('input', e => {
+            searchText = e.target.value.toLowerCase();
+            reapplyAllFilters();
+        });
+
+        // ── Theme toggle ─────────────────────────────────────────────────────────
+        const html = document.documentElement;
+        document.getElementById('themeToggle').addEventListener('click', () => {
+            const isDark = html.dataset.theme === 'dark';
+            html.dataset.theme = isDark ? 'light' : 'dark';
+            document.getElementById('themeToggle').textContent = isDark ? '🌙 Dark' : '☀️ Light';
+        });
+
+        // ── Export ────────────────────────────────────────────────────────────────
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            const blob = new Blob([JSON.stringify(eventLog, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `ai-proxy-events-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.json`;
+            a.click();
+        });
+
+        // ── Instances ─────────────────────────────────────────────────────────────
+        function renderInstances(instances) {
+            const grid = document.getElementById('instancesGrid');
+            if (!instances || instances.length === 0) {
+                grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">No instances configured</div>';
+                return;
+            }
+            grid.innerHTML = instances.map(i => `
+                <div class="instance-card ${i.isHealthy ? 'healthy' : ''}">
+                    <div style="display:flex;align-items:center;gap:0.5rem;">
+                        <span class="instance-name">${escHtml(i.name)}</span>
+                        <span class="badge ${i.isHealthy ? 'badge-green' : 'badge-red'}">${i.isHealthy ? 'healthy' : 'offline'}</span>
+                    </div>
+                    <div class="instance-url">${escHtml(i.baseUrl)}</div>
+                    <div class="instance-meta">
+                        <span>🔗 ${i.activeConnections} active</span>
+                        <span>⏱ ${i.lastHealthCheck ? new Date(i.lastHealthCheck).toLocaleTimeString() : '—'}</span>
+                    </div>
+                    <div class="instance-models">${i.models && i.models.length ? i.models.join(', ') : 'no models'}</div>
+                </div>`).join('');
+        }
+
+        // ── Throughput chart ──────────────────────────────────────────────────────
+        function renderThroughput(series) {
+            const chart = document.getElementById('throughputChart');
+            if (!series || series.length === 0) return;
+            const max = Math.max(1, ...series);
+            chart.innerHTML = series.map(v => {
+                const pct = Math.round((v / max) * 100);
+                return `<div class="bar" style="height:${Math.max(2, pct)}%" title="${v} req/s"></div>`;
+            }).join('');
+        }
+
+        // ── Model table ───────────────────────────────────────────────────────────
+        function renderModelTable(counts) {
+            const tbl = document.getElementById('modelTable');
+            const entries = Object.entries(counts || {}).sort((a,b) => b[1]-a[1]);
+            if (entries.length === 0) {
+                tbl.innerHTML = '<tr><td colspan="2" style="color:var(--muted);text-align:center;padding:1rem 0;">No data yet</td></tr>';
+                return;
+            }
+            tbl.innerHTML = entries.map(([m,c]) =>
+                `<tr><td>${escHtml(m)}</td><td>${c}</td></tr>`).join('');
+        }
+
+        // ── Polling ───────────────────────────────────────────────────────────────
+        async function fetchMetrics() {
+            try {
+                const r = await fetch('/api/metrics');
+                if (!r.ok) return;
+                const m = await r.json();
+                document.getElementById('statRpm').textContent     = m.requestsPerMinute ?? 0;
+                document.getElementById('statLatency').textContent = m.avgLatencyMs > 0 ? Math.round(m.avgLatencyMs) + ' ms' : '—';
+                renderThroughput(m.requestsPerSecondSeries);
+                renderModelTable(m.modelCounts);
+            } catch (_) {}
+        }
+
+        async function fetchInstances() {
+            try {
+                const r = await fetch('/api/instances');
+                if (!r.ok) return;
+                renderInstances(await r.json());
+            } catch (_) {}
+        }
+
+        fetchInstances();
+        fetchMetrics();
+        setInterval(fetchInstances, 10_000);
+        setInterval(fetchMetrics, 2_000);
+
+        // ── SignalR ───────────────────────────────────────────────────────────────
         const connection = new signalR.HubConnectionBuilder()
             .withUrl('/hubs/monitor')
             .withAutomaticReconnect()
@@ -115,23 +350,29 @@
         connection.on('RequestReceived', (entry) => {
             total++; active++;
             updateStats();
-            addEvent('RequestReceived', `[${entry.requestId?.substring(0, 8)}] ${entry.endpoint} model=${entry.model || 'unknown'} streaming=${entry.streaming}`);
+            addEvent('RequestReceived', `[${entry.requestId?.substring(0,8)}] ${entry.endpoint} model=${entry.model||'unknown'} streaming=${entry.streaming}`);
         });
 
         connection.on('RequestForwarded', (data) => {
-            addEvent('RequestForwarded', `[${data.requestId?.substring(0, 8)}] → ${data.instanceName}`);
+            addEvent('RequestForwarded', `[${data.requestId?.substring(0,8)}] → ${data.instanceName}`);
         });
 
         connection.on('RequestCompleted', (entry) => {
             completed++; active = Math.max(0, active - 1);
             updateStats();
-            addEvent('RequestCompleted', `[${entry.requestId?.substring(0, 8)}] ${entry.endpoint} status=${entry.statusCode} ${entry.durationMs}ms`);
+            const tokens = (entry.inputTokens != null || entry.outputTokens != null)
+                ? ` in=${entry.inputTokens??'?'} out=${entry.outputTokens??'?'}` : '';
+            addEvent('RequestCompleted', `[${entry.requestId?.substring(0,8)}] ${entry.endpoint} status=${entry.statusCode} ${entry.durationMs}ms${tokens}`);
         });
 
         connection.on('RequestFailed', (data) => {
             failed++; active = Math.max(0, active - 1);
             updateStats();
-            addEvent('RequestFailed', `[${data.requestId?.substring(0, 8)}] ${data.error}`);
+            addEvent('RequestFailed', `[${data.requestId?.substring(0,8)}] ${data.error}`);
+        });
+
+        connection.on('InstanceStatus', (instances) => {
+            renderInstances(instances);
         });
 
         async function start() {
@@ -139,28 +380,15 @@
                 await connection.start();
                 statusDot.className = 'status-dot connected';
                 statusText.textContent = 'Connected';
-                console.log('SignalR connected');
             } catch (err) {
                 statusText.textContent = 'Disconnected — retrying...';
-                console.error('SignalR connection error:', err);
                 setTimeout(start, 5000);
             }
         }
 
-        connection.onreconnecting(() => {
-            statusDot.className = 'status-dot';
-            statusText.textContent = 'Reconnecting...';
-        });
-
-        connection.onreconnected(() => {
-            statusDot.className = 'status-dot connected';
-            statusText.textContent = 'Connected';
-        });
-
-        connection.onclose(() => {
-            statusDot.className = 'status-dot';
-            statusText.textContent = 'Disconnected';
-        });
+        connection.onreconnecting(() => { statusDot.className = 'status-dot'; statusText.textContent = 'Reconnecting...'; });
+        connection.onreconnected(() => { statusDot.className = 'status-dot connected'; statusText.textContent = 'Connected'; });
+        connection.onclose(() => { statusDot.className = 'status-dot'; statusText.textContent = 'Disconnected'; });
 
         start();
     </script>
