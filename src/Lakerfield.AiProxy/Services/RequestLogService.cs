@@ -11,7 +11,7 @@ public class RequestLogService
 {
     private readonly string _logDirectory;
     private readonly ILogger<RequestLogService> _logger;
-    private static readonly SemaphoreSlim _fileLock = new(1, 1);
+    private readonly SemaphoreSlim _fileLock = new(1, 1);
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,

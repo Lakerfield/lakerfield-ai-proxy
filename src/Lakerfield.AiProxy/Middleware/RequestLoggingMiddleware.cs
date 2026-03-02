@@ -49,7 +49,11 @@ public class RequestLoggingMiddleware
                 ErrorMessage = errorMessage,
             };
 
-            _ = _logService.LogRequestAsync(entry);
+            _ = Task.Run(async () =>
+            {
+                try { await _logService.LogRequestAsync(entry); }
+                catch (Exception ex) { _logger.LogError(ex, "Background log write failed"); }
+            });
         }
     }
 }

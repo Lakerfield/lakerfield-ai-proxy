@@ -61,7 +61,7 @@ public class OllamaRegistryService
         lock (_lock)
         {
             var instance = _instances.FirstOrDefault(i => i.Name == name);
-            if (instance != null) Interlocked.Increment(ref instance.ActiveConnections);
+            if (instance != null) instance.ActiveConnections++;
         }
     }
 
@@ -70,11 +70,8 @@ public class OllamaRegistryService
         lock (_lock)
         {
             var instance = _instances.FirstOrDefault(i => i.Name == name);
-            if (instance != null)
-            {
-                var val = Interlocked.Decrement(ref instance.ActiveConnections);
-                if (val < 0) Interlocked.Exchange(ref instance.ActiveConnections, 0);
-            }
+            if (instance != null && instance.ActiveConnections > 0)
+                instance.ActiveConnections--;
         }
     }
 

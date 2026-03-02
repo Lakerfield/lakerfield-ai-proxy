@@ -70,7 +70,7 @@ public class LoadBalancerService
         if (fallbacks.Count == 0) return null;
 
         // Round-robin fallback
-        var idx = Math.Abs(Interlocked.Increment(ref _roundRobinIndex)) % fallbacks.Count;
-        return fallbacks[idx];
+        var idx = (uint)Interlocked.Increment(ref _roundRobinIndex) % (uint)fallbacks.Count;
+        return fallbacks[(int)idx];
     }
 }
