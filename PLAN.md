@@ -12,7 +12,7 @@ This document tracks the full implementation roadmap for the **Lakerfield AI Pro
 | 2 | ✅ Done | Load Balancing |
 | 3 | ✅ Done | Request Logging |
 | 4 | ✅ Done | Realtime Dashboard |
-| 5 | 🔲 Planned | Polish & Docker |
+| 5 | ✅ Done | Polish & Docker |
 
 ---
 
@@ -116,20 +116,20 @@ logs/
 
 ---
 
-## 🔲 Phase 5 — Polish & Docker
+## ✅ Phase 5 — Polish & Docker
 
 **Nog te implementeren:**
-- [ ] `Dockerfile` voor containerisatie
-- [ ] `docker-compose.yml` met proxy + meerdere Ollama instances
-- [ ] Configuration validation bij startup (valideer BaseUrl format, etc.)
-- [ ] Unit tests voor `LoadBalancerService` en `OllamaRegistryService`
+- [x] `Dockerfile` voor containerisatie
+- [x] `docker-compose.yml` met proxy + meerdere Ollama instances
+- [x] Configuration validation bij startup (valideer BaseUrl format, etc.)
+- [x] Unit tests voor `LoadBalancerService` en `OllamaRegistryService`
 - [ ] Integration tests
-- [ ] README uitbreiden met Docker instructies
-- [ ] Health endpoint `/health` voor monitoring tools
-- [ ] Metrics endpoint `/metrics` (Prometheus formaat)
-- [ ] CORS configuratie voor dashboard
-- [ ] Rate limiting
-- [ ] Authentication voor proxy endpoints (API key validation)
+- [x] README uitbreiden met Docker instructies
+- [x] Health endpoint `/health` voor monitoring tools
+- [x] Metrics endpoint `/metrics` (Prometheus formaat)
+- [x] CORS configuratie voor dashboard
+- [x] Rate limiting
+- [x] Authentication voor proxy endpoints (API key validation)
 
 ---
 

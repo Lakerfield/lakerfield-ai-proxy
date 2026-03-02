@@ -1,0 +1,11 @@
+services:
+  proxy:
+    environment:
+      - AiProxy__OllamaInstances__0__Name=ollama-1
+      - AiProxy__OllamaInstances__0__BaseUrl=http://ollama-1:11434
+      - AiProxy__OllamaInstances__0__Models__0=llama3
+      - AiProxy__OllamaInstances__0__Models__1=mistral
+      - AiProxy__OllamaInstances__1__Name=ollama-2
+      - AiProxy__OllamaInstances__1__BaseUrl=http://ollama-2:11434
+      - AiProxy__OllamaInstances__1__Models__0=phi3
+      - AiProxy__OllamaInstances__1__Models__1=llama3
