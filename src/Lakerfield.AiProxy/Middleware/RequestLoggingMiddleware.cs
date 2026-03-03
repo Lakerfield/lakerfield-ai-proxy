@@ -23,10 +23,25 @@ public class RequestLoggingMiddleware
         _maxBodyBytes = options.Value.LogMaxBodyBytes;
     }
 
+    private static bool IsExcludedPath(string path) =>
+        path.StartsWith("/api/metrics", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/api/instances", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/api/logs", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/metrics", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/health", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/hubs/", StringComparison.OrdinalIgnoreCase);
+
     public async Task InvokeAsync(HttpContext context)
     {
         var requestId = Guid.NewGuid().ToString();
         context.Items["RequestId"] = requestId;
+
+        // Skip metrics recording for internal dashboard/health endpoints
+        if (IsExcludedPath(context.Request.Path.Value ?? string.Empty))
+        {
+            await _next(context);
+            return;
+        }
 
         // Buffer request body so it can be read by both this middleware and the controller
         string? requestBodySample = null;
