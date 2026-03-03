@@ -4,6 +4,7 @@ using Lakerfield.AiProxy.Hubs;
 using Lakerfield.AiProxy.Models;
 using Lakerfield.AiProxy.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace Lakerfield.AiProxy.Controllers;
 
@@ -15,19 +16,22 @@ public class ProxyController : ControllerBase
     private readonly RequestMonitorService _monitor;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ProxyController> _logger;
+    private readonly int _maxBodyBytes;
 
     public ProxyController(
         LoadBalancerService loadBalancer,
         OllamaRegistryService registry,
         RequestMonitorService monitor,
         IHttpClientFactory httpClientFactory,
-        ILogger<ProxyController> logger)
+        ILogger<ProxyController> logger,
+        IOptions<AiProxyOptions> options)
     {
         _loadBalancer = loadBalancer;
         _registry = registry;
         _monitor = monitor;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _maxBodyBytes = options.Value.LogMaxBodyBytes;
     }
 
     // GET /v1/models
@@ -142,18 +146,26 @@ public class ProxyController : ControllerBase
         }
 
         int maxRetries = 2; // TODO: make configurable via AiProxyOptions
-        for (int attempt = 0; attempt <= maxRetries; attempt++)
+        try
         {
-            var success = await TryForwardToInstance(instance, endpoint, bodyJson, requestId, isStreaming);
-            if (success) return;
-
-            if (attempt < maxRetries)
+            for (int attempt = 0; attempt <= maxRetries; attempt++)
             {
-                _logger.LogWarning("Request to '{Name}' failed, retrying with fallback instance", instance.Name);
-                var fallback = _loadBalancer.SelectFallbackInstance(model, instance.Name);
-                if (fallback == null) break;
-                instance = fallback;
+                var success = await TryForwardToInstance(instance, endpoint, bodyJson, requestId, isStreaming);
+                if (success) return;
+
+                if (attempt < maxRetries)
+                {
+                    _logger.LogWarning("Request to '{Name}' failed, retrying with fallback instance", instance.Name);
+                    var fallback = _loadBalancer.SelectFallbackInstance(model, instance.Name);
+                    if (fallback == null) break;
+                    instance = fallback;
+                }
             }
+        }
+        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            _logger.LogInformation("Request {RequestId} cancelled by client", requestId);
+            return;
         }
 
         await _monitor.BroadcastRequestFailed(requestId, "All instances failed");
@@ -214,7 +226,9 @@ public class ProxyController : ControllerBase
                 // Buffer response to parse token usage before forwarding
                 var responseBody = await response.Content.ReadAsStringAsync(HttpContext.RequestAborted);
                 TryParseTokenUsage(responseBody, out inputTokens, out outputTokens);
-                responseBodyForLog = responseBody;
+                responseBodyForLog = (_maxBodyBytes > 0 && responseBody.Length > _maxBodyBytes)
+                    ? responseBody[.._maxBodyBytes]
+                    : responseBody;
                 await Response.Body.WriteAsync(Encoding.UTF8.GetBytes(responseBody), HttpContext.RequestAborted);
             }
             else
@@ -241,6 +255,11 @@ public class ProxyController : ControllerBase
             await _monitor.BroadcastRequestCompleted(logEntry);
 
             return true;
+        }
+        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            // Client disconnected – don't mark instance as unhealthy, propagate so the retry loop stops
+            throw;
         }
         catch (Exception ex)
         {
