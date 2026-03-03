@@ -13,8 +13,4 @@
     <PackageReference Include="Yarp.ReverseProxy" Version="2.*" />
   </ItemGroup>
 
-  <ItemGroup>
-    <InternalsVisibleTo Include="Lakerfield.AiProxy.Tests" />
-  </ItemGroup>
-
 </Project>
