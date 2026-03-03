@@ -58,6 +58,10 @@ public class ProxyController : ControllerBase
     [HttpPost("/v1/completions")]
     public Task ForwardCompletions() => ForwardRequest("/v1/completions");
 
+    // POST /v1/responses (OpenAI Responses API — used by newer models)
+    [HttpPost("/v1/responses")]
+    public Task ForwardResponses() => ForwardRequest("/v1/responses");
+
     // POST /api/chat
     [HttpPost("/api/chat")]
     public Task ForwardOllamaChat() => ForwardRequest("/api/chat");

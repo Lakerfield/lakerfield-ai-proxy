@@ -43,8 +43,9 @@ Ollama 1  Ollama 2  Ollama 3
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/v1/chat/completions` | POST | Chat completions (used by Claude Code) |
-| `/v1/models` | GET | Aggregated list of available models |
 | `/v1/completions` | POST | Text completions |
+| `/v1/responses` | POST | OpenAI Responses API (used by newer models) |
+| `/v1/models` | GET | Aggregated list of available models |
 | `/api/chat` | POST | Ollama native chat endpoint |
 | `/api/generate` | POST | Ollama native generate endpoint |
 | `/health` | GET | Liveness/readiness health check |
