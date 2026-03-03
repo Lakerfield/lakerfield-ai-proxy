@@ -72,6 +72,10 @@ public class ProxyController : ControllerBase
         return Ok(new { models });
     }
 
+    // POST /v1/messages (Anthropic Claude Messages API — Ollama natively supports this since v0.14.0)
+    [HttpPost("/v1/messages")]
+    public Task ForwardClaudeMessages() => ForwardRequest("/v1/messages");
+
     // POST /v1/chat/completions
     [HttpPost("/v1/chat/completions")]
     public Task ForwardChatCompletions() => ForwardRequest("/v1/chat/completions");
@@ -260,9 +264,14 @@ public class ProxyController : ControllerBase
             if (root.TryGetProperty("eval_count", out var ec))
                 outputTokens = ec.GetInt32();
 
+            // Anthropic Messages API format: usage.input_tokens / usage.output_tokens
             // OpenAI-compatible format: usage.prompt_tokens / usage.completion_tokens
             if (root.TryGetProperty("usage", out var usage))
             {
+                if (usage.TryGetProperty("input_tokens", out var it))
+                    inputTokens = it.GetInt32();
+                if (usage.TryGetProperty("output_tokens", out var ot))
+                    outputTokens = ot.GetInt32();
                 if (usage.TryGetProperty("prompt_tokens", out var pt))
                     inputTokens = pt.GetInt32();
                 if (usage.TryGetProperty("completion_tokens", out var ct))
