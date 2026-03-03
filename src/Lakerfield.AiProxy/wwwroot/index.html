@@ -70,9 +70,26 @@
         .filter-btn.active { border-color: var(--accent); color: var(--accent); background: #0284c711; }
         .search-box { margin-left: auto; padding: 0.25rem 0.6rem; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.8rem; min-width: 160px; }
         .events-list { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; height: 420px; overflow-y: auto; padding: 0.5rem; }
-        .event { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--bg); font-size: 0.8rem; display: flex; gap: 0.6rem; align-items: flex-start; }
+        .event { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--bg); font-size: 0.8rem; display: flex; gap: 0.6rem; align-items: flex-start; cursor: pointer; }
         .event:last-child { border-bottom: none; }
+        .event:hover { background: var(--bg); }
         .event.hidden { display: none; }
+
+        /* Detail drawer */
+        .drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; display: none; }
+        .drawer-backdrop.open { display: block; }
+        .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(680px, 92vw); background: var(--surface); border-left: 1px solid var(--border); z-index: 101; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.2s ease; }
+        .drawer.open { transform: translateX(0); }
+        .drawer-header { padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+        .drawer-header h2 { font-size: 0.95rem; font-weight: 600; }
+        .drawer-close { background: none; border: none; color: var(--muted); font-size: 1.3rem; cursor: pointer; line-height: 1; padding: 0.15rem 0.35rem; border-radius: 4px; }
+        .drawer-close:hover { color: var(--text); background: var(--border); }
+        .drawer-body { padding: 1rem 1.25rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem; }
+        .detail-meta { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+        .detail-chip { font-size: 0.74rem; background: var(--bg); padding: 0.2rem 0.5rem; border-radius: 4px; border: 1px solid var(--border); }
+        .detail-chip strong { color: var(--accent); }
+        .detail-section-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.4rem; }
+        pre.body-pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; font-size: 0.74rem; font-family: 'Consolas', 'Courier New', monospace; overflow-x: auto; white-space: pre-wrap; word-break: break-all; max-height: 380px; overflow-y: auto; color: var(--text); margin: 0; }
         .event-time { color: var(--muted); font-size: 0.72rem; white-space: nowrap; min-width: 72px; }
         .event-type { padding: 0.1rem 0.45rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
         .type-received { background: #1e3a5f; color: #38bdf8; }
@@ -173,6 +190,15 @@
         </section>
     </main>
 
+    <div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' ')closeDrawer()" aria-label="Close detail drawer"></div>
+    <div class="drawer" id="detailDrawer">
+        <div class="drawer-header">
+            <h2>Request Detail</h2>
+            <button class="drawer-close" onclick="closeDrawer()" aria-label="Close detail drawer">✕</button>
+        </div>
+        <div class="drawer-body" id="drawerBody"></div>
+    </div>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
     <script>
         // ── State ────────────────────────────────────────────────────────────────
@@ -199,7 +225,7 @@
         }
 
         // ── Events ────────────────────────────────────────────────────────────────
-        function addEvent(type, detail) {
+        function addEvent(type, detail, entryData) {
             const empty = eventsList.querySelector('.empty-state');
             if (empty) empty.remove();
 
@@ -216,10 +242,15 @@
             ev.className  = 'event';
             ev.dataset.type   = label;
             ev.dataset.detail = detail.toLowerCase();
+            if (entryData) ev._entryData = entryData;
             ev.innerHTML = `
                 <span class="event-time">${now}</span>
                 <span class="event-type ${typeClass}">${label}</span>
                 <span class="event-detail">${escHtml(detail)}</span>`;
+            if (entryData) {
+                ev.title = 'Click to view request/response detail';
+                ev.addEventListener('click', () => openDrawer(entryData, now, label, typeClass));
+            }
             applyVisibility(ev);
             eventsList.insertBefore(ev, eventsList.firstChild);
             while (eventsList.children.length > 200)
@@ -227,6 +258,59 @@
 
             eventLog.unshift({ type: label, detail, time: now });
             if (eventLog.length > 1000) eventLog.pop();
+        }
+
+        // ── Detail drawer ─────────────────────────────────────────────────────────
+        function openDrawer(entry, time, label, typeClass) {
+            const body = document.getElementById('drawerBody');
+            const chips = [
+                entry.requestId   ? `<span class="detail-chip"><strong>ID</strong> ${escHtml(entry.requestId.substring(0,8))}</span>` : '',
+                entry.endpoint    ? `<span class="detail-chip"><strong>Endpoint</strong> ${escHtml(entry.endpoint)}</span>` : '',
+                entry.model       ? `<span class="detail-chip"><strong>Model</strong> ${escHtml(entry.model)}</span>` : '',
+                entry.routedTo    ? `<span class="detail-chip"><strong>Instance</strong> ${escHtml(entry.routedTo)}</span>` : '',
+                entry.statusCode  ? `<span class="detail-chip"><strong>Status</strong> ${escHtml(String(entry.statusCode))}</span>` : '',
+                entry.durationMs != null ? `<span class="detail-chip"><strong>Duration</strong> ${entry.durationMs} ms</span>` : '',
+                entry.inputTokens  != null ? `<span class="detail-chip"><strong>In tokens</strong> ${entry.inputTokens}</span>` : '',
+                entry.outputTokens != null ? `<span class="detail-chip"><strong>Out tokens</strong> ${entry.outputTokens}</span>` : '',
+                entry.streaming != null ? `<span class="detail-chip"><strong>Streaming</strong> ${entry.streaming}</span>` : '',
+                `<span class="detail-chip"><strong>Time</strong> ${escHtml(time)}</span>`,
+                `<span class="detail-chip event-type ${typeClass}" style="border:none;">${escHtml(label)}</span>`,
+            ].filter(Boolean).join('');
+
+            const reqSection = entry.requestBody
+                ? `<div class="detail-section">
+                    <div class="detail-section-title">Request Body</div>
+                    <pre class="body-pre">${escHtml(tryPrettyJson(entry.requestBody))}</pre>
+                   </div>`
+                : '';
+
+            const respSection = entry.responseBody
+                ? `<div class="detail-section">
+                    <div class="detail-section-title">Response Body</div>
+                    <pre class="body-pre">${escHtml(tryPrettyJson(entry.responseBody))}</pre>
+                   </div>`
+                : (label === 'Completed' && entry.streaming
+                    ? `<div class="detail-section"><div class="detail-section-title">Response Body</div><p style="font-size:0.8rem;color:var(--muted);">Not captured for streaming responses.</p></div>`
+                    : '');
+
+            body.innerHTML = `
+                <div class="detail-meta">${chips}</div>
+                ${reqSection}
+                ${respSection}
+            `;
+
+            document.getElementById('drawerBackdrop').classList.add('open');
+            document.getElementById('detailDrawer').classList.add('open');
+        }
+
+        function closeDrawer() {
+            document.getElementById('drawerBackdrop').classList.remove('open');
+            document.getElementById('detailDrawer').classList.remove('open');
+        }
+
+        function tryPrettyJson(str) {
+            try { return JSON.stringify(JSON.parse(str), null, 2); }
+            catch (_) { return str; }
         }
 
         // ── Filtering ─────────────────────────────────────────────────────────────
@@ -350,7 +434,7 @@
         connection.on('RequestReceived', (entry) => {
             total++; active++;
             updateStats();
-            addEvent('RequestReceived', `[${entry.requestId?.substring(0,8)}] ${entry.endpoint} model=${entry.model||'unknown'} streaming=${entry.streaming}`);
+            addEvent('RequestReceived', `[${entry.requestId?.substring(0,8)}] ${entry.endpoint} model=${entry.model||'unknown'} streaming=${entry.streaming}`, entry);
         });
 
         connection.on('RequestForwarded', (data) => {
@@ -362,7 +446,7 @@
             updateStats();
             const tokens = (entry.inputTokens != null || entry.outputTokens != null)
                 ? ` in=${entry.inputTokens??'?'} out=${entry.outputTokens??'?'}` : '';
-            addEvent('RequestCompleted', `[${entry.requestId?.substring(0,8)}] ${entry.endpoint} status=${entry.statusCode} ${entry.durationMs}ms${tokens}`);
+            addEvent('RequestCompleted', `[${entry.requestId?.substring(0,8)}] ${entry.endpoint} status=${entry.statusCode} ${entry.durationMs}ms${tokens}`, entry);
         });
 
         connection.on('RequestFailed', (data) => {

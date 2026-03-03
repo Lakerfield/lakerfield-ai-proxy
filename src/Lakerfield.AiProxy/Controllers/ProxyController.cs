@@ -130,6 +130,7 @@ public class ProxyController : ControllerBase
             Endpoint = endpoint,
             Model = model,
             Streaming = isStreaming,
+            RequestBody = bodyJson,
         });
 
         OllamaInstance? instance = _loadBalancer.SelectInstance(model);
@@ -206,12 +207,14 @@ public class ProxyController : ControllerBase
 
             int? inputTokens = null;
             int? outputTokens = null;
+            string? responseBodyForLog = null;
 
             if (!isStreaming)
             {
                 // Buffer response to parse token usage before forwarding
                 var responseBody = await response.Content.ReadAsStringAsync(HttpContext.RequestAborted);
                 TryParseTokenUsage(responseBody, out inputTokens, out outputTokens);
+                responseBodyForLog = responseBody;
                 await Response.Body.WriteAsync(Encoding.UTF8.GetBytes(responseBody), HttpContext.RequestAborted);
             }
             else
@@ -232,6 +235,8 @@ public class ProxyController : ControllerBase
                 Streaming = isStreaming,
                 InputTokens = inputTokens,
                 OutputTokens = outputTokens,
+                RequestBody = bodyJson,
+                ResponseBody = responseBodyForLog,
             };
             await _monitor.BroadcastRequestCompleted(logEntry);
 
