@@ -50,6 +50,28 @@ public class ProxyController : ControllerBase
         return Ok(new { @object = "list", data = models });
     }
 
+    // GET /api/tags — Ollama native model list endpoint
+    [HttpGet("/api/tags")]
+    public IActionResult GetOllamaTags()
+    {
+        var instances = _registry.GetHealthyInstances();
+        var models = instances
+            .SelectMany(i => i.Models)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(m => new
+            {
+                name = m,   // model tag, e.g. "llama3:latest"
+                model = m,  // full model identifier (same value, required by Ollama API)
+                modified_at = DateTime.UtcNow.ToString("o"),
+                size = 0,           // placeholder: actual size not tracked by proxy
+                digest = string.Empty, // placeholder: actual digest not tracked by proxy
+                details = new { }
+            })
+            .ToList();
+
+        return Ok(new { models });
+    }
+
     // POST /v1/chat/completions
     [HttpPost("/v1/chat/completions")]
     public Task ForwardChatCompletions() => ForwardRequest("/v1/chat/completions");
