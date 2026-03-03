@@ -9,6 +9,16 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Kestrel: allow long-running AI inference requests without timing out
+builder.WebHost.ConfigureKestrel(options =>
+{
+    // Disable data-rate checks so Kestrel doesn't drop connections while Ollama is generating
+    options.Limits.MinResponseDataRate = null;
+    options.Limits.MinRequestBodyDataRate = null;
+    // Keep HTTP/1.1 connections alive for the duration of long inference requests
+    options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(10);
+});
+
 // Serilog
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
