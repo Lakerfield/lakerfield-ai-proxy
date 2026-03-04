@@ -17,13 +17,15 @@ public class LogsController : ControllerBase
     private readonly MetricsService _metrics;
     private readonly OllamaRegistryService _registry;
     private readonly string _logDirectory;
+    private readonly ILogger<LogsController> _logger;
     private static readonly JsonSerializerOptions _readOptions = new() { PropertyNameCaseInsensitive = true };
 
-    public LogsController(MetricsService metrics, OllamaRegistryService registry, IOptions<AiProxyOptions> options)
+    public LogsController(MetricsService metrics, OllamaRegistryService registry, IOptions<AiProxyOptions> options, ILogger<LogsController> logger)
     {
         _metrics = metrics;
         _registry = registry;
         _logDirectory = options.Value.LogDirectory;
+        _logger = logger;
     }
 
     // GET /api/metrics
@@ -136,6 +138,52 @@ public class LogsController : ControllerBase
         }
 
         return Ok(entries);
+    }
+
+    // GET /api/logs/body/{requestId}?type=request|response
+    [HttpGet("logs/body/{requestId}")]
+    public async Task<IActionResult> GetLogBody(string requestId, [FromQuery] string type = "request")
+    {
+        if (type != "request" && type != "response")
+            return BadRequest("Invalid type. Use 'request' or 'response'.");
+
+        // Search today's and yesterday's log files
+        foreach (var daysAgo in new[] { 0, 1 })
+        {
+            var dateStr = DateTime.UtcNow.AddDays(-daysAgo).ToString("yyyy-MM-dd");
+            foreach (var fileName in new[] { "requests.jsonl", "errors.jsonl" })
+            {
+                var filePath = Path.Combine(_logDirectory, dateStr, fileName);
+                if (!System.IO.File.Exists(filePath)) continue;
+
+                try
+                {
+                    await foreach (var line in System.IO.File.ReadLinesAsync(filePath))
+                    {
+                        if (string.IsNullOrWhiteSpace(line)) continue;
+                        try
+                        {
+                            var entry = JsonSerializer.Deserialize<RequestLogEntry>(line, _readOptions);
+                            if (entry?.RequestId == requestId)
+                            {
+                                var body = type == "response" ? entry.ResponseBody : entry.RequestBody;
+                                return Ok(new { body });
+                            }
+                        }
+                        catch (JsonException ex)
+                        {
+                            _logger.LogDebug(ex, "Skipping malformed log line in {File}", filePath);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to read log file {File}", filePath);
+                }
+            }
+        }
+
+        return NotFound(new { body = (string?)null });
     }
 
     private static string EscapeLabel(string value) =>

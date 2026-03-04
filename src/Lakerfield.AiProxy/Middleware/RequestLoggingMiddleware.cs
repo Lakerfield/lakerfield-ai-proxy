@@ -45,6 +45,7 @@ public class RequestLoggingMiddleware
 
         // Buffer request body so it can be read by both this middleware and the controller
         string? requestBodySample = null;
+        int? requestBodySize = null;
         if (_maxBodyBytes > 0 &&
             (context.Request.ContentLength is > 0 || context.Request.Headers.ContainsKey("Transfer-Encoding")))
         {
@@ -54,6 +55,10 @@ public class RequestLoggingMiddleware
             if (read > 0)
                 requestBodySample = Encoding.UTF8.GetString(buffer, 0, read);
             context.Request.Body.Seek(0, SeekOrigin.Begin);
+            // Use declared Content-Length as authoritative size; fall back to bytes actually read
+            requestBodySize = context.Request.ContentLength.HasValue
+                ? (int)context.Request.ContentLength.Value
+                : read > 0 ? read : null;
         }
 
         var sw = Stopwatch.StartNew();
@@ -86,6 +91,9 @@ public class RequestLoggingMiddleware
                 InputTokens = context.Items["InputTokens"] as int?,
                 OutputTokens = context.Items["OutputTokens"] as int?,
                 RequestBody = requestBodySample,
+                RequestBodySize = requestBodySize,
+                ResponseBody = context.Items["ResponseBody"] as string,
+                ResponseBodySize = (context.Items["ResponseBody"] as string)?.Length,
                 ErrorMessage = errorMessage,
             };
 
