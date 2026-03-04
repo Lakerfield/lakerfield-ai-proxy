@@ -102,8 +102,8 @@ public class ProxyController : ControllerBase
 
     private async Task ForwardRequest(string endpoint)
     {
-        var requestId = Guid.NewGuid().ToString();
-        HttpContext.Items["RequestId"] = requestId;
+        // Use the requestId already set by RequestLoggingMiddleware so log entries match SignalR events
+        var requestId = HttpContext.Items["RequestId"] as string ?? Guid.NewGuid().ToString();
 
         string? bodyJson = null;
         string? model = null;
@@ -134,7 +134,7 @@ public class ProxyController : ControllerBase
             Endpoint = endpoint,
             Model = model,
             Streaming = isStreaming,
-            RequestBody = bodyJson,
+            RequestBodySize = bodyJson?.Length,
         });
 
         OllamaInstance? instance = _loadBalancer.SelectInstance(model);
@@ -238,6 +238,7 @@ public class ProxyController : ControllerBase
 
             HttpContext.Items["InputTokens"] = inputTokens;
             HttpContext.Items["OutputTokens"] = outputTokens;
+            HttpContext.Items["ResponseBody"] = responseBodyForLog;
 
             var logEntry = new RequestLogEntry
             {
@@ -249,8 +250,8 @@ public class ProxyController : ControllerBase
                 Streaming = isStreaming,
                 InputTokens = inputTokens,
                 OutputTokens = outputTokens,
-                RequestBody = bodyJson,
-                ResponseBody = responseBodyForLog,
+                RequestBodySize = bodyJson?.Length,
+                ResponseBodySize = responseBodyForLog?.Length,
             };
             await _monitor.BroadcastRequestCompleted(logEntry);
 
