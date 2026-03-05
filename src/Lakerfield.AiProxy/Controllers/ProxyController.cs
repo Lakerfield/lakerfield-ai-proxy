@@ -207,14 +207,17 @@ public class ProxyController : ControllerBase
 
             Response.StatusCode = (int)response.StatusCode;
 
+            var responseHeadersForLog = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var header in response.Headers)
             {
                 if (header.Key.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase)) continue;
                 Response.Headers[header.Key] = header.Value.ToArray();
+                responseHeadersForLog[header.Key] = string.Join(", ", header.Value);
             }
             foreach (var header in response.Content.Headers)
             {
                 Response.Headers[header.Key] = header.Value.ToArray();
+                responseHeadersForLog[header.Key] = string.Join(", ", header.Value);
             }
 
             int? inputTokens = null;
@@ -233,12 +236,47 @@ public class ProxyController : ControllerBase
             }
             else
             {
-                await response.Content.CopyToAsync(Response.Body, HttpContext.RequestAborted);
+                // Streaming: tee the response body to both the client and a capture buffer for logging
+                using var responseStream = await response.Content.ReadAsStreamAsync(HttpContext.RequestAborted);
+                byte[]? captureBuffer = _maxBodyBytes > 0 ? new byte[_maxBodyBytes] : null;
+                int capturedBytes = 0;
+                var readBuffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = await responseStream.ReadAsync(readBuffer, HttpContext.RequestAborted)) > 0)
+                {
+                    await Response.Body.WriteAsync(readBuffer.AsMemory(0, bytesRead), HttpContext.RequestAborted);
+                    if (captureBuffer != null && capturedBytes < _maxBodyBytes)
+                    {
+                        int toCapture = Math.Min(bytesRead, _maxBodyBytes - capturedBytes);
+                        Array.Copy(readBuffer, 0, captureBuffer, capturedBytes, toCapture);
+                        capturedBytes += toCapture;
+                    }
+                }
+                if (captureBuffer != null && capturedBytes > 0)
+                {
+                    responseBodyForLog = Encoding.UTF8.GetString(captureBuffer, 0, capturedBytes);
+                    // Try to parse token usage from the last JSON line of the streaming response
+                    var lines = responseBodyForLog.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var line in lines.Reverse())
+                    {
+                        var span = line.AsSpan();
+                        if (span.StartsWith("data: ".AsSpan(), StringComparison.Ordinal))
+                            span = span[6..];
+                        var trimmed = span.TrimStart();
+                        if (!trimmed.IsEmpty && trimmed[0] == '{')
+                        {
+                            TryParseTokenUsage(trimmed.ToString(), out inputTokens, out outputTokens);
+                            if (inputTokens.HasValue || outputTokens.HasValue)
+                                break;
+                        }
+                    }
+                }
             }
 
             HttpContext.Items["InputTokens"] = inputTokens;
             HttpContext.Items["OutputTokens"] = outputTokens;
             HttpContext.Items["ResponseBody"] = responseBodyForLog;
+            HttpContext.Items["ResponseHeaders"] = responseHeadersForLog;
 
             var logEntry = new RequestLogEntry
             {

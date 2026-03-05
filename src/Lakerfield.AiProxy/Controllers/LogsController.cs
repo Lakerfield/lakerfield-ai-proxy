@@ -167,7 +167,8 @@ public class LogsController : ControllerBase
                             if (entry?.RequestId == requestId)
                             {
                                 var body = type == "response" ? entry.ResponseBody : entry.RequestBody;
-                                return Ok(new { body });
+                                var headers = type == "response" ? entry.ResponseHeaders : entry.RequestHeaders;
+                                return Ok(new { body, headers });
                             }
                         }
                         catch (JsonException ex)
@@ -183,7 +184,7 @@ public class LogsController : ControllerBase
             }
         }
 
-        return NotFound(new { body = (string?)null });
+        return NotFound(new { body = (string?)null, headers = (Dictionary<string, string>?)null });
     }
 
     private static string EscapeLabel(string value) =>

@@ -43,6 +43,12 @@ public class RequestLoggingMiddleware
             return;
         }
 
+        // Capture request headers (excluding pseudo-headers and noisy transport headers)
+        var requestHeaders = context.Request.Headers
+            .Where(h => !h.Key.StartsWith(':') &&
+                        !h.Key.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase))
+            .ToDictionary(h => h.Key, h => h.Value.ToString());
+
         // Buffer request body so it can be read by both this middleware and the controller
         string? requestBodySample = null;
         int? requestBodySize = null;
@@ -92,8 +98,10 @@ public class RequestLoggingMiddleware
                 OutputTokens = context.Items["OutputTokens"] as int?,
                 RequestBody = requestBodySample,
                 RequestBodySize = requestBodySize,
+                RequestHeaders = requestHeaders,
                 ResponseBody = context.Items["ResponseBody"] as string,
                 ResponseBodySize = (context.Items["ResponseBody"] as string)?.Length,
+                ResponseHeaders = context.Items["ResponseHeaders"] as Dictionary<string, string>,
                 ErrorMessage = errorMessage,
             };
 
