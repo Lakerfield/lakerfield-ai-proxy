@@ -16,5 +16,7 @@ public class RequestLogEntry
     public int? ResponseBodySize { get; set; }
     public string? RequestBody { get; set; }
     public string? ResponseBody { get; set; }
+    public Dictionary<string, string>? RequestHeaders { get; set; }
+    public Dictionary<string, string>? ResponseHeaders { get; set; }
     public string? ErrorMessage { get; set; }
 }
