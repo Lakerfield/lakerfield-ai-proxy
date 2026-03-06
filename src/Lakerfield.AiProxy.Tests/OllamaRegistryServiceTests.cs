@@ -135,10 +135,10 @@ public class OllamaRegistryServiceTests
     }
 
     [Fact]
-    public void UpdateModels_ReplacesModelList()
+    public void UpdateModels_ReplacesModelList_WhenNoConfiguredModels()
     {
         var registry = CreateRegistry(
-            new OllamaInstanceConfig { Name = "a", BaseUrl = "http://a:11434", Models = ["llama3"] }
+            new OllamaInstanceConfig { Name = "a", BaseUrl = "http://a:11434" }
         );
 
         registry.UpdateModels("a", ["phi3", "mistral"]);
@@ -147,6 +147,53 @@ public class OllamaRegistryServiceTests
         Assert.Equal(2, instance.Models.Count);
         Assert.Contains("phi3", instance.Models);
         Assert.Contains("mistral", instance.Models);
+    }
+
+    [Fact]
+    public void UpdateModels_FiltersToConfiguredModels_WhenConfiguredModelsIsSet()
+    {
+        var registry = CreateRegistry(
+            new OllamaInstanceConfig { Name = "a", BaseUrl = "http://a:11434", Models = ["llama3", "mistral"] }
+        );
+
+        // Backend reports llama3, phi3, mistral — only llama3 and mistral are configured
+        registry.UpdateModels("a", ["llama3", "phi3", "mistral"]);
+
+        var instance = registry.GetAllInstances()[0];
+        Assert.Equal(2, instance.Models.Count);
+        Assert.Contains("llama3", instance.Models);
+        Assert.Contains("mistral", instance.Models);
+        Assert.DoesNotContain("phi3", instance.Models);
+    }
+
+    [Fact]
+    public void UpdateModels_FiltersAreCaseInsensitive()
+    {
+        var registry = CreateRegistry(
+            new OllamaInstanceConfig { Name = "a", BaseUrl = "http://a:11434", Models = ["LLaMa3"] }
+        );
+
+        registry.UpdateModels("a", ["llama3", "phi3"]);
+
+        var instance = registry.GetAllInstances()[0];
+        Assert.Single(instance.Models);
+        Assert.Contains("llama3", instance.Models, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void UpdateModels_ExcludesModelsNotReportedByBackend()
+    {
+        var registry = CreateRegistry(
+            new OllamaInstanceConfig { Name = "a", BaseUrl = "http://a:11434", Models = ["llama3", "mistral"] }
+        );
+
+        // Backend only reports llama3, not mistral
+        registry.UpdateModels("a", ["llama3"]);
+
+        var instance = registry.GetAllInstances()[0];
+        Assert.Single(instance.Models);
+        Assert.Contains("llama3", instance.Models);
+        Assert.DoesNotContain("mistral", instance.Models);
     }
 
     [Fact]
