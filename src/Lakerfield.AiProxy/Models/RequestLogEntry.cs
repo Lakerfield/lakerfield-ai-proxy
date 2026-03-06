@@ -7,6 +7,7 @@ public class RequestLogEntry
     public string Endpoint { get; set; } = string.Empty;
     public string? Model { get; set; }
     public string? RoutedTo { get; set; }
+    public string? ApiKey { get; set; }
     public long DurationMs { get; set; }
     public int? InputTokens { get; set; }
     public int? OutputTokens { get; set; }

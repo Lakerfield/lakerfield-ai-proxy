@@ -67,6 +67,8 @@ public class RequestLoggingMiddleware
                 : read > 0 ? read : null;
         }
 
+        var apiKey = ExtractApiKey(context.Request);
+
         var sw = Stopwatch.StartNew();
         string? errorMessage = null;
 
@@ -93,6 +95,7 @@ public class RequestLoggingMiddleware
                 DurationMs = sw.ElapsedMilliseconds,
                 Model = model,
                 RoutedTo = routedTo,
+                ApiKey = apiKey,
                 Streaming = context.Items["Streaming"] is true,
                 InputTokens = context.Items["InputTokens"] as int?,
                 OutputTokens = context.Items["OutputTokens"] as int?,
@@ -113,5 +116,27 @@ public class RequestLoggingMiddleware
                 catch (Exception ex) { _logger.LogError(ex, "Background log write failed"); }
             });
         }
+    }
+
+    private static string? ExtractApiKey(HttpRequest request)
+    {
+        string? key = null;
+
+        // X-Api-Key header
+        if (request.Headers.TryGetValue("X-Api-Key", out var headerKey) && !string.IsNullOrEmpty(headerKey))
+            key = headerKey.ToString();
+        // Authorization: Bearer <key>
+        else if (request.Headers.TryGetValue("Authorization", out var auth) && !string.IsNullOrEmpty(auth))
+        {
+            var authStr = auth.ToString();
+            if (authStr.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                key = authStr["Bearer ".Length..].Trim();
+        }
+        // ?api_key= query parameter
+        else if (request.Query.TryGetValue("api_key", out var queryKey) && !string.IsNullOrEmpty(queryKey))
+            key = queryKey.ToString();
+
+        // Truncate to avoid storing full secrets; first 8 chars are sufficient for identification
+        return key is { Length: > 8 } ? key[..8] + "…" : key;
     }
 }
