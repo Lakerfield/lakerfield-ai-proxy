@@ -184,7 +184,7 @@
                     <button class="filter-btn" data-filter="completed">Completed</button>
                     <button class="filter-btn" data-filter="failed">Failed</button>
                 </div>
-                <input class="search-box" id="searchBox" placeholder="Filter by model, backend, endpoint…" type="text" />
+                <input class="search-box" id="searchBox" placeholder="Filter by model, backend, api key, endpoint…" type="text" />
             </div>
             <div class="requests-wrap">
                 <table class="requests-table" id="requestsTable">
@@ -193,6 +193,7 @@
                             <th>Time</th>
                             <th>Model</th>
                             <th>Backend</th>
+                            <th>API Key</th>
                             <th>Status</th>
                             <th>Req Size</th>
                             <th>Resp Size</th>
@@ -202,7 +203,7 @@
                         </tr>
                     </thead>
                     <tbody id="requestsTbody">
-                        <tr id="emptyRow"><td colspan="9" class="empty-state">Waiting for requests…</td></tr>
+                        <tr id="emptyRow"><td colspan="10" class="empty-state">Waiting for requests…</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -319,8 +320,8 @@
             }
         }
 
-        function buildRowDetail(model, backend, endpoint) {
-            return `${model || ''} ${backend || ''} ${endpoint || ''}`.toLowerCase();
+        function buildRowDetail(model, backend, apiKey, endpoint) {
+            return `${model || ''} ${backend || ''} ${apiKey || ''} ${endpoint || ''}`.toLowerCase();
         }
 
         function makeSizeCell(requestId, type, size) {
@@ -359,7 +360,7 @@
             const tr = document.createElement('tr');
             tr.dataset.requestId = entry.requestId;
             tr.dataset.status = 'active';
-            tr.dataset.detail = buildRowDetail(entry.model, entry.routedTo, entry.endpoint);
+            tr.dataset.detail = buildRowDetail(entry.model, entry.routedTo, entry.apiKey, entry.endpoint);
 
             // td: Time
             const tdTime = document.createElement('td');
@@ -376,6 +377,13 @@
             const tdBackend = document.createElement('td');
             setBackendCell(tdBackend, entry.routedTo ?? null);
             tr.appendChild(tdBackend);
+
+            // td: API Key
+            const tdApiKey = document.createElement('td');
+            tdApiKey.style.cssText = 'color:var(--muted);font-size:0.75rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;';
+            tdApiKey.title = entry.apiKey || '';
+            tdApiKey.textContent = entry.apiKey || '—';
+            tr.appendChild(tdApiKey);
 
             // td: Status
             const tdStatus = document.createElement('td');
@@ -427,14 +435,14 @@
             // Backend (index 2)
             if (entry.routedTo) {
                 setBackendCell(cells[2], entry.routedTo);
-                tr.dataset.detail = buildRowDetail(cells[1].textContent, entry.routedTo, cells[8].textContent);
+                tr.dataset.detail = buildRowDetail(cells[1].textContent, entry.routedTo, entry.apiKey, cells[9].textContent);
             }
-            // Status (index 3)
-            cells[3].innerHTML = entry.errorMessage
+            // Status (index 4)
+            cells[4].innerHTML = entry.errorMessage
                 ? '<span class="status-badge status-error">error</span>'
                 : statusBadge(entry.statusCode);
-            // Resp Size (index 5) — replace cell contents
-            const respTd = cells[5];
+            // Resp Size (index 6) — replace cell contents
+            const respTd = cells[6];
             respTd.innerHTML = '';
             if (entry.responseBodySize != null) {
                 const a = document.createElement('span');
@@ -446,12 +454,12 @@
             } else {
                 respTd.innerHTML = '<span class="size-none">—</span>';
             }
-            // Duration (index 6)
-            cells[6].textContent = fmtDuration(entry.durationMs);
-            cells[6].style.cssText = '';
-            // Wait (index 7)
-            cells[7].textContent = fmtDuration(waitMs);
+            // Duration (index 7)
+            cells[7].textContent = fmtDuration(entry.durationMs);
             cells[7].style.cssText = '';
+            // Wait (index 8)
+            cells[8].textContent = fmtDuration(waitMs);
+            cells[8].style.cssText = '';
 
             const isFailed = entry.errorMessage || (entry.statusCode && entry.statusCode >= 400);
             tr.dataset.status = isFailed ? 'failed' : 'completed';
@@ -490,12 +498,13 @@
                 time: tr.cells[0]?.textContent,
                 model: tr.cells[1]?.textContent,
                 backend: tr.cells[2]?.textContent,
-                statusCode: tr.cells[3]?.textContent,
-                reqSize: tr.cells[4]?.textContent,
-                respSize: tr.cells[5]?.textContent,
-                duration: tr.cells[6]?.textContent,
-                wait: tr.cells[7]?.textContent,
-                endpoint: tr.cells[8]?.textContent,
+                apiKey: tr.cells[3]?.textContent,
+                statusCode: tr.cells[4]?.textContent,
+                reqSize: tr.cells[5]?.textContent,
+                respSize: tr.cells[6]?.textContent,
+                duration: tr.cells[7]?.textContent,
+                wait: tr.cells[8]?.textContent,
+                endpoint: tr.cells[9]?.textContent,
             }));
             const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' });
             const a = document.createElement('a');
