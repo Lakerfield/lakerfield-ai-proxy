@@ -102,8 +102,9 @@ public class ProxyController : ControllerBase
 
     private async Task ForwardRequest(string endpoint)
     {
-        // Use the requestId already set by RequestLoggingMiddleware so log entries match SignalR events
+        // Use the requestId and apiKey already set by RequestLoggingMiddleware so log entries match SignalR events
         var requestId = HttpContext.Items["RequestId"] as string ?? Guid.NewGuid().ToString();
+        var apiKey = HttpContext.Items["ApiKey"] as string;
 
         string? bodyJson = null;
         string? model = null;
@@ -134,6 +135,7 @@ public class ProxyController : ControllerBase
             Endpoint = endpoint,
             Model = model,
             Streaming = isStreaming,
+            ApiKey = apiKey,
             RequestBodySize = bodyJson?.Length,
         });
 
@@ -288,6 +290,7 @@ public class ProxyController : ControllerBase
                 Streaming = isStreaming,
                 InputTokens = inputTokens,
                 OutputTokens = outputTokens,
+                ApiKey = HttpContext.Items["ApiKey"] as string,
                 RequestBodySize = bodyJson?.Length,
                 ResponseBodySize = responseBodyForLog?.Length,
             };
