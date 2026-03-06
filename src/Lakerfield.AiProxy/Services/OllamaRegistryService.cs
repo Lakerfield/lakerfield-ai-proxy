@@ -18,7 +18,8 @@ public class OllamaRegistryService
             {
                 Name = cfg.Name,
                 BaseUrl = cfg.BaseUrl,
-                Models = cfg.Models,
+                Models = cfg.Models.ToList(),
+                ConfiguredModels = cfg.Models.ToList(),
                 IsHealthy = true,
             });
         }
@@ -82,7 +83,12 @@ public class OllamaRegistryService
             var instance = _instances.FirstOrDefault(i => i.Name == name);
             if (instance != null)
             {
-                instance.Models = models;
+                // If specific models were configured for this instance, use them as a whitelist.
+                // Only expose models that the backend reports AND that are in the configured list.
+                // When no models are configured, expose everything the backend reports.
+                instance.Models = instance.ConfiguredModels.Count > 0
+                    ? models.Where(m => instance.ConfiguredModels.Contains(m, StringComparer.OrdinalIgnoreCase)).ToList()
+                    : models;
                 instance.LastHealthCheck = DateTime.UtcNow;
             }
         }

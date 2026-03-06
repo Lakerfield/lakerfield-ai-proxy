@@ -70,13 +70,20 @@ builder.Services.AddCors(options =>
     {
         if (aiProxyConfig.CorsAllowedOrigins.Count == 0 || aiProxyConfig.CorsAllowedOrigins.Contains("*"))
         {
-            policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+            // AllowAnyOrigin() is incompatible with AllowCredentials() which SignalR requires.
+            // Use SetIsOriginAllowed instead so that all origins are accepted while still
+            // supporting credentials for SignalR's SSE / long-polling transports.
+            policy.SetIsOriginAllowed(_ => true)
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials();
         }
         else
         {
             policy.WithOrigins(aiProxyConfig.CorsAllowedOrigins.ToArray())
                   .AllowAnyMethod()
-                  .AllowAnyHeader();
+                  .AllowAnyHeader()
+                  .AllowCredentials();
         }
     });
 });
