@@ -68,6 +68,7 @@ public class RequestLoggingMiddleware
         }
 
         var apiKey = ExtractApiKey(context.Request);
+        context.Items["ApiKey"] = apiKey;
 
         var sw = Stopwatch.StartNew();
         string? errorMessage = null;
@@ -118,7 +119,7 @@ public class RequestLoggingMiddleware
         }
     }
 
-    private static string? ExtractApiKey(HttpRequest request)
+    internal static string? ExtractApiKey(HttpRequest request)
     {
         string? key = null;
 
