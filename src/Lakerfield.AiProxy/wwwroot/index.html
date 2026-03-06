@@ -104,6 +104,20 @@
         .modal-section-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.4rem; font-weight: 600; }
         pre.body-pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; font-size: 0.78rem; font-family: 'Consolas', 'Courier New', monospace; overflow-x: auto; white-space: pre-wrap; word-break: break-all; color: var(--text); margin: 0; min-height: 4rem; }
 
+        /* Parsed SSE view */
+        .parsed-view { display: flex; flex-direction: column; gap: 0.75rem; }
+        .parsed-block { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+        .parsed-block-header { padding: 0.4rem 0.75rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+        .parsed-block-header.thinking { background: #1e3a5f44; color: #93c5fd; border-bottom: 1px solid var(--border); }
+        .parsed-block-header.text-response { background: #14532d44; color: #86efac; border-bottom: 1px solid var(--border); }
+        .parsed-block-header.meta { background: #33334433; color: var(--muted); border-bottom: 1px solid var(--border); }
+        .parsed-block-content { padding: 0.75rem; font-size: 0.82rem; white-space: pre-wrap; word-break: break-word; line-height: 1.6; color: var(--text); }
+        .parsed-block-content.thinking-text { color: #93c5fd; }
+        .parsed-meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.5rem; padding: 0.6rem 0.75rem; font-size: 0.78rem; }
+        .parsed-meta-item { display: flex; flex-direction: column; gap: 0.15rem; }
+        .parsed-meta-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+        .parsed-meta-value { font-weight: 600; color: var(--text); }
+
         .empty-state { text-align: center; color: var(--muted); padding: 3rem; font-size: 0.85rem; }
     </style>
 </head>
@@ -215,16 +229,23 @@
         <div class="body-modal-inner">
             <div class="body-modal-header">
                 <h3 id="bodyModalTitle">Details</h3>
-                <button class="body-modal-close" id="bodyModalClose" aria-label="Close">✕</button>
+                <div style="display:flex;gap:0.5rem;align-items:center;flex-shrink:0;">
+                    <button class="btn" id="bodyModalParsedBtn" style="display:none;" title="Toggle between raw and parsed SSE view" aria-label="Toggle parsed view">📄 Parsed View</button>
+                    <button class="body-modal-close" id="bodyModalClose" aria-label="Close">✕</button>
+                </div>
             </div>
             <div class="body-modal-body">
                 <div>
                     <div class="modal-section-title">Headers</div>
                     <pre class="body-pre" id="bodyModalHeaders">Loading…</pre>
                 </div>
-                <div>
+                <div id="bodyModalRawSection">
                     <div class="modal-section-title">Body</div>
                     <pre class="body-pre" id="bodyModalContent">Loading…</pre>
+                </div>
+                <div id="bodyModalParsedSection" style="display:none;">
+                    <div class="modal-section-title">Parsed Response</div>
+                    <div class="parsed-view" id="bodyModalParsedContent"></div>
                 </div>
             </div>
         </div>
@@ -249,6 +270,10 @@
         const bodyModalTitle   = document.getElementById('bodyModalTitle');
         const bodyModalHeaders = document.getElementById('bodyModalHeaders');
         const bodyModalContent = document.getElementById('bodyModalContent');
+        const bodyModalParsedBtn     = document.getElementById('bodyModalParsedBtn');
+        const bodyModalRawSection    = document.getElementById('bodyModalRawSection');
+        const bodyModalParsedSection = document.getElementById('bodyModalParsedSection');
+        const bodyModalParsedContent = document.getElementById('bodyModalParsedContent');
 
         // ── Utils ─────────────────────────────────────────────────────────────────
         function escHtml(s) {
@@ -282,12 +307,137 @@
             document.getElementById('statActive').textContent    = active;
         }
 
+        // ── SSE Parser ────────────────────────────────────────────────────────────
+        function isSseBody(text) {
+            return /^event:\s*\S/m.test(text) && /^data:\s*\{/m.test(text);
+        }
+
+        function parseSseBody(text) {
+            const blocks = [];
+            // Split into individual events (blank-line separated)
+            const rawEvents = text.split(/\n\n+/);
+            let currentEvent = null;
+            let currentData = null;
+            for (const chunk of rawEvents) {
+                const lines = chunk.split('\n');
+                let evtType = null, dataStr = null;
+                for (const line of lines) {
+                    if (line.startsWith('event:')) evtType = line.slice(6).trim();
+                    else if (line.startsWith('data:')) dataStr = line.slice(5).trim();
+                }
+                if (!evtType || !dataStr) continue;
+                let parsed;
+                try { parsed = JSON.parse(dataStr); } catch (_) { /* non-JSON data lines are safely skipped */ }
+                blocks.push({ event: evtType, raw: dataStr, data: parsed });
+            }
+            return blocks;
+        }
+
+        function buildParsedView(text) {
+            const blocks = parseSseBody(text);
+            if (blocks.length === 0) return null;
+
+            // Aggregate content by block index
+            const contentBlocks = {};  // index → { type, text }
+            let messageMeta = null;
+            let messageUsage = null;
+            let stopReason = null;
+
+            for (const { event, data } of blocks) {
+                if (!data) continue;
+                if (event === 'message_start' && data.message) {
+                    messageMeta = data.message;
+                }
+                if (event === 'content_block_start' && data.content_block != null) {
+                    const idx = data.index;
+                    contentBlocks[idx] = { type: data.content_block.type, text: data.content_block.thinking || data.content_block.text || '' };
+                }
+                if (event === 'content_block_delta' && data.delta) {
+                    const idx = data.index;
+                    const delta = data.delta;
+                    if (!contentBlocks[idx]) contentBlocks[idx] = { type: delta.type === 'thinking_delta' ? 'thinking' : 'text', text: '' };
+                    if (delta.type === 'thinking_delta') contentBlocks[idx].text += delta.thinking || '';
+                    else if (delta.type === 'text_delta') contentBlocks[idx].text += delta.text || '';
+                }
+                if (event === 'message_delta' && data.delta) {
+                    stopReason = data.delta.stop_reason || null;
+                    if (data.usage) messageUsage = data.usage;
+                }
+            }
+
+            const el = document.createDocumentFragment();
+
+            // Meta block
+            if (messageMeta || stopReason || messageUsage) {
+                const metaDiv = document.createElement('div');
+                metaDiv.className = 'parsed-block';
+                const hdr = document.createElement('div');
+                hdr.className = 'parsed-block-header meta';
+                hdr.textContent = 'Message Info';
+                metaDiv.appendChild(hdr);
+                const grid = document.createElement('div');
+                grid.className = 'parsed-meta-grid';
+                const items = [];
+                if (messageMeta?.model) items.push(['Model', messageMeta.model]);
+                if (messageMeta?.id) items.push(['ID', messageMeta.id]);
+                if (stopReason) items.push(['Stop Reason', stopReason]);
+                const inputTokens = messageMeta?.usage?.input_tokens ?? messageUsage?.input_tokens;
+                const outputTokens = messageUsage?.output_tokens ?? messageMeta?.usage?.output_tokens;
+                if (inputTokens != null) items.push(['Input Tokens', inputTokens]);
+                if (outputTokens != null) items.push(['Output Tokens', outputTokens]);
+                for (const [label, val] of items) {
+                    const item = document.createElement('div');
+                    item.className = 'parsed-meta-item';
+                    item.innerHTML = `<span class="parsed-meta-label">${escHtml(label)}</span><span class="parsed-meta-value">${escHtml(String(val))}</span>`;
+                    grid.appendChild(item);
+                }
+                metaDiv.appendChild(grid);
+                el.appendChild(metaDiv);
+            }
+
+            // Content blocks in order
+            const indices = Object.keys(contentBlocks).map(Number).sort((a, b) => a - b);
+            for (const idx of indices) {
+                const block = contentBlocks[idx];
+                const blockDiv = document.createElement('div');
+                blockDiv.className = 'parsed-block';
+                const hdr = document.createElement('div');
+                const content = document.createElement('div');
+                content.className = 'parsed-block-content';
+                if (block.type === 'thinking') {
+                    hdr.className = 'parsed-block-header thinking';
+                    hdr.textContent = '💭 Thinking';
+                    content.className += ' thinking-text';
+                } else {
+                    hdr.className = 'parsed-block-header text-response';
+                    hdr.textContent = '💬 Response';
+                }
+                content.textContent = block.text;
+                blockDiv.appendChild(hdr);
+                blockDiv.appendChild(content);
+                el.appendChild(blockDiv);
+            }
+
+            return el;
+        }
+
         // ── Body popup ────────────────────────────────────────────────────────────
+        let bodyModalShowParsed = false;
+
+        function setBodyModalView(showParsed) {
+            bodyModalShowParsed = showParsed;
+            bodyModalRawSection.style.display = showParsed ? 'none' : '';
+            bodyModalParsedSection.style.display = showParsed ? '' : 'none';
+            bodyModalParsedBtn.textContent = showParsed ? '📃 Raw View' : '📄 Parsed View';
+        }
         async function showBody(requestId, type) {
             const label = type === 'response' ? 'Response' : 'Request';
             bodyModalTitle.textContent = `${label} Details — ${requestId.substring(0, 8)}…`;
             bodyModalHeaders.textContent = 'Loading…';
             bodyModalContent.textContent = 'Loading…';
+            bodyModalParsedContent.innerHTML = '';
+            bodyModalParsedBtn.style.display = 'none';
+            setBodyModalView(false);
             bodyModal.classList.add('open');
             try {
                 const r = await fetch(`/api/logs/body/${encodeURIComponent(requestId)}?type=${type}`);
@@ -296,7 +446,18 @@
                     ? Object.entries(data.headers).map(([k, v]) => `${k}: ${v}`).join('\n')
                     : '(no headers)';
                 bodyModalHeaders.textContent = headers;
-                bodyModalContent.textContent = data.body ? tryPrettyJson(data.body) : '(empty)';
+                const bodyText = data.body ? tryPrettyJson(data.body) : '(empty)';
+                bodyModalContent.textContent = bodyText;
+
+                // Check if body is SSE format and offer parsed view
+                if (data.body && isSseBody(data.body)) {
+                    const parsedFrag = buildParsedView(data.body);
+                    if (parsedFrag) {
+                        bodyModalParsedContent.appendChild(parsedFrag);
+                        bodyModalParsedBtn.style.display = '';
+                        setBodyModalView(true);
+                    }
+                }
             } catch (e) {
                 bodyModalHeaders.textContent = 'Failed to load: ' + e.message;
                 bodyModalContent.textContent = 'Failed to load: ' + e.message;
@@ -306,6 +467,7 @@
             bodyModal.classList.remove('open');
         }
         document.getElementById('bodyModalClose').addEventListener('click', closeBodyModal);
+        bodyModalParsedBtn.addEventListener('click', () => setBodyModalView(!bodyModalShowParsed));
         bodyModal.addEventListener('click', (e) => { if (e.target === bodyModal) closeBodyModal(); });
         document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeBodyModal(); });
 
