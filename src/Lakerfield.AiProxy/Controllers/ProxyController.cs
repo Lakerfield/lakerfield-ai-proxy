@@ -4,7 +4,6 @@ using Lakerfield.AiProxy.Hubs;
 using Lakerfield.AiProxy.Models;
 using Lakerfield.AiProxy.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
 
 namespace Lakerfield.AiProxy.Controllers;
 
@@ -16,22 +15,19 @@ public class ProxyController : ControllerBase
     private readonly RequestMonitorService _monitor;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ProxyController> _logger;
-    private readonly int _maxBodyBytes;
 
     public ProxyController(
         LoadBalancerService loadBalancer,
         OllamaRegistryService registry,
         RequestMonitorService monitor,
         IHttpClientFactory httpClientFactory,
-        ILogger<ProxyController> logger,
-        IOptions<AiProxyOptions> options)
+        ILogger<ProxyController> logger)
     {
         _loadBalancer = loadBalancer;
         _registry = registry;
         _monitor = monitor;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
-        _maxBodyBytes = options.Value.LogMaxBodyBytes;
     }
 
     // GET /v1/models
@@ -231,32 +227,24 @@ public class ProxyController : ControllerBase
                 // Buffer response to parse token usage before forwarding
                 var responseBody = await response.Content.ReadAsStringAsync(HttpContext.RequestAborted);
                 TryParseTokenUsage(responseBody, out inputTokens, out outputTokens);
-                responseBodyForLog = (_maxBodyBytes > 0 && responseBody.Length > _maxBodyBytes)
-                    ? responseBody[.._maxBodyBytes]
-                    : responseBody;
+                responseBodyForLog = responseBody;
                 await Response.Body.WriteAsync(Encoding.UTF8.GetBytes(responseBody), HttpContext.RequestAborted);
             }
             else
             {
                 // Streaming: tee the response body to both the client and a capture buffer for logging
                 using var responseStream = await response.Content.ReadAsStreamAsync(HttpContext.RequestAborted);
-                byte[]? captureBuffer = _maxBodyBytes > 0 ? new byte[_maxBodyBytes] : null;
-                int capturedBytes = 0;
+                using var captureStream = new MemoryStream();
                 var readBuffer = new byte[8192];
                 int bytesRead;
                 while ((bytesRead = await responseStream.ReadAsync(readBuffer, HttpContext.RequestAborted)) > 0)
                 {
                     await Response.Body.WriteAsync(readBuffer.AsMemory(0, bytesRead), HttpContext.RequestAborted);
-                    if (captureBuffer != null && capturedBytes < _maxBodyBytes)
-                    {
-                        int toCapture = Math.Min(bytesRead, _maxBodyBytes - capturedBytes);
-                        Array.Copy(readBuffer, 0, captureBuffer, capturedBytes, toCapture);
-                        capturedBytes += toCapture;
-                    }
+                    await captureStream.WriteAsync(readBuffer.AsMemory(0, bytesRead), HttpContext.RequestAborted);
                 }
-                if (captureBuffer != null && capturedBytes > 0)
+                if (captureStream.Length > 0)
                 {
-                    responseBodyForLog = Encoding.UTF8.GetString(captureBuffer, 0, capturedBytes);
+                    responseBodyForLog = Encoding.UTF8.GetString(captureStream.GetBuffer(), 0, (int)captureStream.Length);
                     // Try to parse token usage from the last JSON line of the streaming response
                     var lines = responseBodyForLog.Split('\n', StringSplitOptions.RemoveEmptyEntries);
                     foreach (var line in lines.Reverse())
