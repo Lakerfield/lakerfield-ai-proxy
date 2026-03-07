@@ -48,6 +48,7 @@ builder.Services.AddSingleton<LoadBalancerService>();
 builder.Services.AddSingleton<RequestLogService>();
 builder.Services.AddSingleton<RequestMonitorService>();
 builder.Services.AddSingleton<MetricsService>();
+builder.Services.AddSingleton<ActiveRequestStore>();
 builder.Services.AddHostedService<OllamaHealthCheckService>();
 builder.Services.AddHostedService<LogRetentionService>();
 

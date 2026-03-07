@@ -5,16 +5,17 @@ using Microsoft.Extensions.Options;
 namespace Lakerfield.AiProxy.Services;
 
 /// <summary>
-/// Writes request log entries to per-day JSONL files.
+/// Writes each request log entry to its own JSON file at
+/// <c>{LogDirectory}/{yyyy-MM-dd}/{requestId}.json</c>.
 /// </summary>
 public class RequestLogService
 {
     private readonly string _logDirectory;
     private readonly ILogger<RequestLogService> _logger;
-    private readonly SemaphoreSlim _fileLock = new(1, 1);
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true,
     };
 
     public RequestLogService(IOptions<AiProxyOptions> options, ILogger<RequestLogService> logger)
@@ -31,20 +32,9 @@ public class RequestLogService
             var dir = GetTodayDirectory();
             EnsureDirectoryExists(dir);
 
-            var filePath = entry.ErrorMessage != null
-                ? Path.Combine(dir, "errors.jsonl")
-                : Path.Combine(dir, "requests.jsonl");
-
-            var line = JsonSerializer.Serialize(entry, _jsonOptions);
-            await _fileLock.WaitAsync();
-            try
-            {
-                await File.AppendAllTextAsync(filePath, line + Environment.NewLine);
-            }
-            finally
-            {
-                _fileLock.Release();
-            }
+            var filePath = Path.Combine(dir, $"{entry.RequestId}.json");
+            var json = JsonSerializer.Serialize(entry, _jsonOptions);
+            await File.WriteAllTextAsync(filePath, json);
         }
         catch (Exception ex)
         {

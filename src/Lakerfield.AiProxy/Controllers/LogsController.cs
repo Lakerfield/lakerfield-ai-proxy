@@ -16,14 +16,16 @@ public class LogsController : ControllerBase
 
     private readonly MetricsService _metrics;
     private readonly OllamaRegistryService _registry;
+    private readonly ActiveRequestStore _activeRequestStore;
     private readonly string _logDirectory;
     private readonly ILogger<LogsController> _logger;
     private static readonly JsonSerializerOptions _readOptions = new() { PropertyNameCaseInsensitive = true };
 
-    public LogsController(MetricsService metrics, OllamaRegistryService registry, IOptions<AiProxyOptions> options, ILogger<LogsController> logger)
+    public LogsController(MetricsService metrics, OllamaRegistryService registry, ActiveRequestStore activeRequestStore, IOptions<AiProxyOptions> options, ILogger<LogsController> logger)
     {
         _metrics = metrics;
         _registry = registry;
+        _activeRequestStore = activeRequestStore;
         _logDirectory = options.Value.LogDirectory;
         _logger = logger;
     }
@@ -112,29 +114,40 @@ public class LogsController : ControllerBase
 
         limit = Math.Clamp(limit, 1, 1000);
 
-        var filePath = Path.Combine(_logDirectory, dateStr, $"{type}.jsonl");
-        if (!System.IO.File.Exists(filePath))
+        var dir = Path.Combine(_logDirectory, dateStr);
+        if (!Directory.Exists(dir))
             return Ok(Array.Empty<RequestLogEntry>());
 
+        // Sort files by last-write time descending so the most recent entries come first.
+        // For "requests": cap file iteration upfront since every file is a candidate.
+        // For "errors": scan all files because we must filter by ErrorMessage (errors are rare).
+        var files = new DirectoryInfo(dir)
+            .GetFiles("*.json")
+            .OrderByDescending(f => f.LastWriteTimeUtc)
+            .AsEnumerable();
+        var candidates = type == "requests" ? files.Take(limit) : files;
+
         var entries = new List<RequestLogEntry>();
-        try
+
+        foreach (var fi in candidates)
         {
-            var lines = await System.IO.File.ReadAllLinesAsync(filePath);
-            // Return last `limit` entries (most recent)
-            foreach (var line in lines.TakeLast(limit))
+            try
             {
-                if (string.IsNullOrWhiteSpace(line)) continue;
-                try
-                {
-                    var entry = JsonSerializer.Deserialize<RequestLogEntry>(line, _readOptions);
-                    if (entry != null) entries.Add(entry);
-                }
-                catch { /* skip malformed lines */ }
+                var json = await System.IO.File.ReadAllTextAsync(fi.FullName);
+                var entry = JsonSerializer.Deserialize<RequestLogEntry>(json, _readOptions);
+                if (entry == null) continue;
+
+                // For "errors" filter: only include entries that have an error message
+                if (type == "errors" && entry.ErrorMessage == null) continue;
+
+                // Strip body content from list responses — full bodies are available via GetLogBody
+                entry.RequestBody = null;
+                entry.ResponseBody = null;
+
+                entries.Add(entry);
+                if (entries.Count >= limit) break;
             }
-        }
-        catch (Exception)
-        {
-            return StatusCode(500, "Failed to read log file");
+            catch { /* skip malformed files */ }
         }
 
         return Ok(entries);
@@ -147,40 +160,36 @@ public class LogsController : ControllerBase
         if (type != "request" && type != "response")
             return BadRequest("Invalid type. Use 'request' or 'response'.");
 
-        // Search today's and yesterday's log files
+        // For request bodies: check the in-memory store first so that in-flight (streaming)
+        // requests can show their request body before the log file entry is written.
+        if (type == "request")
+        {
+            var active = _activeRequestStore.TryGet(requestId);
+            if (active != null)
+                return Ok(new { body = active.RequestBody, headers = active.RequestHeaders });
+        }
+
+        // Look up the individual request file (today and yesterday)
         foreach (var daysAgo in new[] { 0, 1 })
         {
             var dateStr = DateTime.UtcNow.AddDays(-daysAgo).ToString("yyyy-MM-dd");
-            foreach (var fileName in new[] { "requests.jsonl", "errors.jsonl" })
-            {
-                var filePath = Path.Combine(_logDirectory, dateStr, fileName);
-                if (!System.IO.File.Exists(filePath)) continue;
+            var filePath = Path.Combine(_logDirectory, dateStr, $"{requestId}.json");
+            if (!System.IO.File.Exists(filePath)) continue;
 
-                try
+            try
+            {
+                var json = await System.IO.File.ReadAllTextAsync(filePath);
+                var entry = JsonSerializer.Deserialize<RequestLogEntry>(json, _readOptions);
+                if (entry != null)
                 {
-                    await foreach (var line in System.IO.File.ReadLinesAsync(filePath))
-                    {
-                        if (string.IsNullOrWhiteSpace(line)) continue;
-                        try
-                        {
-                            var entry = JsonSerializer.Deserialize<RequestLogEntry>(line, _readOptions);
-                            if (entry?.RequestId == requestId)
-                            {
-                                var body = type == "response" ? entry.ResponseBody : entry.RequestBody;
-                                var headers = type == "response" ? entry.ResponseHeaders : entry.RequestHeaders;
-                                return Ok(new { body, headers });
-                            }
-                        }
-                        catch (JsonException ex)
-                        {
-                            _logger.LogDebug(ex, "Skipping malformed log line in {File}", filePath);
-                        }
-                    }
+                    var body = type == "response" ? entry.ResponseBody : entry.RequestBody;
+                    var headers = type == "response" ? entry.ResponseHeaders : entry.RequestHeaders;
+                    return Ok(new { body, headers });
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to read log file {File}", filePath);
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to read log file {File}", filePath);
             }
         }
 

@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Text;
 using Lakerfield.AiProxy.Models;
 using Lakerfield.AiProxy.Services;
-using Microsoft.Extensions.Options;
 
 namespace Lakerfield.AiProxy.Middleware;
 
@@ -11,16 +10,16 @@ public class RequestLoggingMiddleware
     private readonly RequestDelegate _next;
     private readonly RequestLogService _logService;
     private readonly MetricsService _metrics;
+    private readonly ActiveRequestStore _activeRequestStore;
     private readonly ILogger<RequestLoggingMiddleware> _logger;
-    private readonly int _maxBodyBytes;
 
-    public RequestLoggingMiddleware(RequestDelegate next, RequestLogService logService, MetricsService metrics, ILogger<RequestLoggingMiddleware> logger, IOptions<AiProxyOptions> options)
+    public RequestLoggingMiddleware(RequestDelegate next, RequestLogService logService, MetricsService metrics, ActiveRequestStore activeRequestStore, ILogger<RequestLoggingMiddleware> logger)
     {
         _next = next;
         _logService = logService;
         _metrics = metrics;
+        _activeRequestStore = activeRequestStore;
         _logger = logger;
-        _maxBodyBytes = options.Value.LogMaxBodyBytes;
     }
 
     private static bool IsExcludedPath(string path) =>
@@ -50,25 +49,23 @@ public class RequestLoggingMiddleware
             .ToDictionary(h => h.Key, h => h.Value.ToString());
 
         // Buffer request body so it can be read by both this middleware and the controller
-        string? requestBodySample = null;
+        string? requestBody = null;
         int? requestBodySize = null;
-        if (_maxBodyBytes > 0 &&
-            (context.Request.ContentLength is > 0 || context.Request.Headers.ContainsKey("Transfer-Encoding")))
+        if (context.Request.ContentLength is > 0 || context.Request.Headers.ContainsKey("Transfer-Encoding"))
         {
             context.Request.EnableBuffering();
-            var buffer = new byte[_maxBodyBytes];
-            var read = await context.Request.Body.ReadAsync(buffer.AsMemory(0, _maxBodyBytes));
-            if (read > 0)
-                requestBodySample = Encoding.UTF8.GetString(buffer, 0, read);
+            using var reader = new StreamReader(context.Request.Body, Encoding.UTF8, leaveOpen: true);
+            requestBody = await reader.ReadToEndAsync();
             context.Request.Body.Seek(0, SeekOrigin.Begin);
-            // Use declared Content-Length as authoritative size; fall back to bytes actually read
-            requestBodySize = context.Request.ContentLength.HasValue
-                ? (int)context.Request.ContentLength.Value
-                : read > 0 ? read : null;
+            requestBodySize = requestBody?.Length;
         }
 
         var apiKey = ExtractApiKey(context.Request);
         context.Items["ApiKey"] = apiKey;
+
+        // Register request body/headers in the in-memory store so they are accessible
+        // via the body popup API while the response is still streaming.
+        _activeRequestStore.Add(requestId, requestBody, requestHeaders);
 
         var sw = Stopwatch.StartNew();
         string? errorMessage = null;
@@ -84,6 +81,7 @@ public class RequestLoggingMiddleware
         }
         finally
         {
+            _activeRequestStore.Remove(requestId);
             sw.Stop();
             var model = context.Items["Model"] as string;
             var routedTo = context.Items["RoutedTo"] as string;
@@ -100,7 +98,7 @@ public class RequestLoggingMiddleware
                 Streaming = context.Items["Streaming"] is true,
                 InputTokens = context.Items["InputTokens"] as int?,
                 OutputTokens = context.Items["OutputTokens"] as int?,
-                RequestBody = requestBodySample,
+                RequestBody = requestBody,
                 RequestBodySize = requestBodySize,
                 RequestHeaders = requestHeaders,
                 ResponseBody = context.Items["ResponseBody"] as string,
