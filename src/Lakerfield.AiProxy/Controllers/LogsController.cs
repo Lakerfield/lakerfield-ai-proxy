@@ -16,14 +16,16 @@ public class LogsController : ControllerBase
 
     private readonly MetricsService _metrics;
     private readonly OllamaRegistryService _registry;
+    private readonly ActiveRequestStore _activeRequestStore;
     private readonly string _logDirectory;
     private readonly ILogger<LogsController> _logger;
     private static readonly JsonSerializerOptions _readOptions = new() { PropertyNameCaseInsensitive = true };
 
-    public LogsController(MetricsService metrics, OllamaRegistryService registry, IOptions<AiProxyOptions> options, ILogger<LogsController> logger)
+    public LogsController(MetricsService metrics, OllamaRegistryService registry, ActiveRequestStore activeRequestStore, IOptions<AiProxyOptions> options, ILogger<LogsController> logger)
     {
         _metrics = metrics;
         _registry = registry;
+        _activeRequestStore = activeRequestStore;
         _logDirectory = options.Value.LogDirectory;
         _logger = logger;
     }
@@ -146,6 +148,15 @@ public class LogsController : ControllerBase
     {
         if (type != "request" && type != "response")
             return BadRequest("Invalid type. Use 'request' or 'response'.");
+
+        // For request bodies: check the in-memory store first so that in-flight (streaming)
+        // requests can show their request body before the log file entry is written.
+        if (type == "request")
+        {
+            var active = _activeRequestStore.TryGet(requestId);
+            if (active != null)
+                return Ok(new { body = active.RequestBody, headers = active.RequestHeaders });
+        }
 
         // Search today's and yesterday's log files
         foreach (var daysAgo in new[] { 0, 1 })

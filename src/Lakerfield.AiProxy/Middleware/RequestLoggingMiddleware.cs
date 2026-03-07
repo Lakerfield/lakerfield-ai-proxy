@@ -11,14 +11,16 @@ public class RequestLoggingMiddleware
     private readonly RequestDelegate _next;
     private readonly RequestLogService _logService;
     private readonly MetricsService _metrics;
+    private readonly ActiveRequestStore _activeRequestStore;
     private readonly ILogger<RequestLoggingMiddleware> _logger;
     private readonly int _maxBodyBytes;
 
-    public RequestLoggingMiddleware(RequestDelegate next, RequestLogService logService, MetricsService metrics, ILogger<RequestLoggingMiddleware> logger, IOptions<AiProxyOptions> options)
+    public RequestLoggingMiddleware(RequestDelegate next, RequestLogService logService, MetricsService metrics, ActiveRequestStore activeRequestStore, ILogger<RequestLoggingMiddleware> logger, IOptions<AiProxyOptions> options)
     {
         _next = next;
         _logService = logService;
         _metrics = metrics;
+        _activeRequestStore = activeRequestStore;
         _logger = logger;
         _maxBodyBytes = options.Value.LogMaxBodyBytes;
     }
@@ -70,6 +72,10 @@ public class RequestLoggingMiddleware
         var apiKey = ExtractApiKey(context.Request);
         context.Items["ApiKey"] = apiKey;
 
+        // Register request body/headers in the in-memory store so they are accessible
+        // via the body popup API while the response is still streaming.
+        _activeRequestStore.Add(requestId, requestBodySample, requestHeaders);
+
         var sw = Stopwatch.StartNew();
         string? errorMessage = null;
 
@@ -84,6 +90,7 @@ public class RequestLoggingMiddleware
         }
         finally
         {
+            _activeRequestStore.Remove(requestId);
             sw.Stop();
             var model = context.Items["Model"] as string;
             var routedTo = context.Items["RoutedTo"] as string;
