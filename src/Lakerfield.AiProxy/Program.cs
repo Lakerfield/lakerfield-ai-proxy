@@ -6,6 +6,7 @@ using Lakerfield.AiProxy.Services;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Serilog;
+using Serilog.Events;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,15 +20,36 @@ builder.WebHost.ConfigureKestrel(options =>
     options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(10);
 });
 
-// Serilog
-Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(builder.Configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.Console()
-    .WriteTo.File("logs/app-.log", rollingInterval: RollingInterval.Day)
-    .CreateLogger();
+// IHttpContextAccessor is needed by the Serilog filter below
+builder.Services.AddHttpContextAccessor();
 
-builder.Host.UseSerilog();
+// Serilog — use the service-aware overload so that a per-request filter can
+// suppress noisy Microsoft.AspNetCore framework messages for internal dashboard
+// endpoints (/api/metrics, /api/instances, /api/logs, /metrics, /health, /hubs/).
+builder.Host.UseSerilog((hostContext, services, config) =>
+{
+    var httpContextAccessor = services.GetRequiredService<IHttpContextAccessor>();
+
+    config
+        .ReadFrom.Configuration(hostContext.Configuration)
+        .Enrich.FromLogContext()
+        .WriteTo.Console()
+        .WriteTo.File("logs/app-.log", rollingInterval: RollingInterval.Day)
+        .Filter.ByExcluding(logEvent =>
+        {
+            // Only suppress Information-and-below — keep Warning+ always visible
+            if (logEvent.Level > LogEventLevel.Information) return false;
+
+            // Only suppress Microsoft.AspNetCore framework log messages
+            if (!logEvent.Properties.TryGetValue("SourceContext", out var sc)) return false;
+            if ((sc as ScalarValue)?.Value is not string sourceCtx) return false;
+            if (!sourceCtx.StartsWith("Microsoft.AspNetCore", StringComparison.OrdinalIgnoreCase)) return false;
+
+            // Suppress when the current request targets a dashboard / internal endpoint
+            var path = httpContextAccessor.HttpContext?.Request.Path.Value ?? string.Empty;
+            return RequestLoggingMiddleware.IsExcludedPath(path);
+        });
+});
 
 // Configuration
 builder.Services.Configure<AiProxyOptions>(builder.Configuration.GetSection(AiProxyOptions.SectionName));

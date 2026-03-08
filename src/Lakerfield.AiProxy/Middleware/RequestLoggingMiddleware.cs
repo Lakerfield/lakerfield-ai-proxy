@@ -22,7 +22,7 @@ public class RequestLoggingMiddleware
         _logger = logger;
     }
 
-    private static bool IsExcludedPath(string path) =>
+    internal static bool IsExcludedPath(string path) =>
         path.StartsWith("/api/metrics", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWith("/api/instances", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWith("/api/logs", StringComparison.OrdinalIgnoreCase) ||
