@@ -112,9 +112,58 @@ public class ProxyController : ControllerBase
     [HttpGet("/api/version")]
     public Task GetOllamaVersion() => ForwardGetRequest("/api/version");
 
-    // GET /api/ps — Ollama list running models
+    // GET /api/ps — Ollama list running models (aggregated from all healthy instances)
     [HttpGet("/api/ps")]
-    public Task GetOllamaPs() => ForwardGetRequest("/api/ps");
+    public async Task<IActionResult> GetOllamaPs()
+    {
+        var instances = _registry.GetHealthyInstances();
+        if (instances.Count == 0)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "No healthy Ollama instances available");
+
+        var client = _httpClientFactory.CreateClient("proxy");
+
+        var tasks = instances.Select(async instance =>
+        {
+            try
+            {
+                var targetUrl = $"{instance.BaseUrl.TrimEnd('/')}/api/ps";
+                using var response = await client.GetAsync(targetUrl, HttpContext.RequestAborted);
+                if (!response.IsSuccessStatusCode)
+                    return Array.Empty<JsonElement>();
+
+                var body = await response.Content.ReadAsStringAsync(HttpContext.RequestAborted);
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("models", out var modelsEl) &&
+                    modelsEl.ValueKind == JsonValueKind.Array)
+                {
+                    // Clone each element so it survives document disposal
+                    return modelsEl.EnumerateArray()
+                        .Select(e => e.Clone())
+                        .ToArray();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch /api/ps from instance '{Name}'", instance.Name);
+            }
+            return Array.Empty<JsonElement>();
+        });
+
+        var results = await Task.WhenAll(tasks);
+
+        // Merge all model entries, deduplicating by model name (case-insensitive, first entry wins)
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var merged = results
+            .SelectMany(r => r)
+            .Where(m =>
+            {
+                var name = m.TryGetProperty("name", out var n) ? n.GetString() : null;
+                return name != null && seen.Add(name);
+            })
+            .ToList();
+
+        return Ok(new { models = merged });
+    }
 
     private async Task ForwardGetRequest(string endpoint)
     {
