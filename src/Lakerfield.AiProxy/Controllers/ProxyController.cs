@@ -96,6 +96,75 @@ public class ProxyController : ControllerBase
     [HttpPost("/api/generate")]
     public Task ForwardOllamaGenerate() => ForwardRequest("/api/generate");
 
+    // POST /api/show — Ollama show model information
+    [HttpPost("/api/show")]
+    public Task ForwardOllamaShow() => ForwardRequest("/api/show");
+
+    // POST /api/embed — Ollama generate embeddings
+    [HttpPost("/api/embed")]
+    public Task ForwardOllamaEmbed() => ForwardRequest("/api/embed");
+
+    // POST /api/embeddings — Ollama generate embeddings (legacy endpoint)
+    [HttpPost("/api/embeddings")]
+    public Task ForwardOllamaEmbeddings() => ForwardRequest("/api/embeddings");
+
+    // GET /api/version — Ollama version
+    [HttpGet("/api/version")]
+    public Task GetOllamaVersion() => ForwardGetRequest("/api/version");
+
+    // GET /api/ps — Ollama list running models
+    [HttpGet("/api/ps")]
+    public Task GetOllamaPs() => ForwardGetRequest("/api/ps");
+
+    private async Task ForwardGetRequest(string endpoint)
+    {
+        var instance = _loadBalancer.SelectInstance(null);
+        if (instance == null)
+        {
+            Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            await Response.WriteAsync("No healthy Ollama instances available");
+            return;
+        }
+
+        try
+        {
+            var client = _httpClientFactory.CreateClient("proxy");
+            var targetUrl = $"{instance.BaseUrl.TrimEnd('/')}{endpoint}";
+
+            var upstreamRequest = new HttpRequestMessage(HttpMethod.Get, targetUrl);
+
+            var response = await client.SendAsync(upstreamRequest, HttpCompletionOption.ResponseHeadersRead, HttpContext.RequestAborted);
+
+            Response.StatusCode = (int)response.StatusCode;
+
+            foreach (var header in response.Headers)
+            {
+                if (header.Key.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase)) continue;
+                Response.Headers[header.Key] = header.Value.ToArray();
+            }
+            foreach (var header in response.Content.Headers)
+            {
+                Response.Headers[header.Key] = header.Value.ToArray();
+            }
+
+            var responseBody = await response.Content.ReadAsStreamAsync(HttpContext.RequestAborted);
+            await responseBody.CopyToAsync(Response.Body, HttpContext.RequestAborted);
+        }
+        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            _logger.LogInformation("GET {Endpoint} request cancelled by client", endpoint);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error forwarding GET request to {Endpoint}", endpoint);
+            if (!Response.HasStarted)
+            {
+                Response.StatusCode = StatusCodes.Status502BadGateway;
+                await Response.WriteAsync("Failed to forward request to Ollama instance");
+            }
+        }
+    }
+
     private async Task ForwardRequest(string endpoint)
     {
         // Use the requestId and apiKey already set by RequestLoggingMiddleware so log entries match SignalR events
