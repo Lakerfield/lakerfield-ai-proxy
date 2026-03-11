@@ -26,8 +26,8 @@ public class LoadBalancerService
             candidates = _registry.GetInstancesForModel(model);
             if (candidates.Count == 0)
             {
-                _logger.LogWarning("No healthy instances found for model '{Model}', falling back to any healthy instance", model);
-                candidates = _registry.GetHealthyInstances();
+                _logger.LogWarning("No healthy instances found for model '{Model}'", model);
+                return null;
             }
         }
         else
@@ -59,7 +59,7 @@ public class LoadBalancerService
         {
             candidates = _registry.GetInstancesForModel(model);
             if (candidates.Count == 0)
-                candidates = _registry.GetHealthyInstances();
+                return null;
         }
         else
         {
