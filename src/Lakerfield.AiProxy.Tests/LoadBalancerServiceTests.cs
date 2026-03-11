@@ -54,16 +54,15 @@ public class LoadBalancerServiceTests
     }
 
     [Fact]
-    public void SelectInstance_FallsBackToAnyHealthy_WhenModelNotFound()
+    public void SelectInstance_ReturnsNull_WhenModelNotFoundOnAnyInstance()
     {
         var (_, lb) = Create(
             new OllamaInstanceConfig { Name = "a", BaseUrl = "http://a:11434", Models = ["llama3"] }
         );
 
-        // "unknownmodel" not on any instance; should fall back to any healthy instance
+        // "unknownmodel" is not configured on any instance; should return null
         var result = lb.SelectInstance("unknownmodel");
-        Assert.NotNull(result);
-        Assert.Equal("a", result.Name);
+        Assert.Null(result);
     }
 
     [Fact]
@@ -120,6 +119,19 @@ public class LoadBalancerServiceTests
 
         // Fallback excluding "a" has no candidates
         var result = lb.SelectFallbackInstance(null, "a");
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void SelectFallbackInstance_ReturnsNull_WhenNoFallbackHasModel()
+    {
+        var (_, lb) = Create(
+            new OllamaInstanceConfig { Name = "a", BaseUrl = "http://a:11434", Models = ["llama3"] },
+            new OllamaInstanceConfig { Name = "b", BaseUrl = "http://b:11434", Models = ["mistral"] }
+        );
+
+        // Exclude "a"; "b" doesn't have "llama3" — should return null rather than fall back
+        var result = lb.SelectFallbackInstance("llama3", "a");
         Assert.Null(result);
     }
 

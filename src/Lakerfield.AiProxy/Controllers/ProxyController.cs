@@ -257,7 +257,10 @@ public class ProxyController : ControllerBase
         if (instance == null)
         {
             Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            await Response.WriteAsync("No healthy Ollama instances available");
+            var unavailableMessage = !string.IsNullOrEmpty(model)
+                ? $"No healthy Ollama instances available for model '{model}'"
+                : "No healthy Ollama instances available";
+            await Response.WriteAsync(unavailableMessage);
             return;
         }
 
