@@ -8,6 +8,7 @@ public class RequestLogEntry
     public string? Model { get; set; }
     public string? RoutedTo { get; set; }
     public string? ApiKey { get; set; }
+    public string? ClientIp { get; set; }
     public long DurationMs { get; set; }
     public int? InputTokens { get; set; }
     public int? OutputTokens { get; set; }
