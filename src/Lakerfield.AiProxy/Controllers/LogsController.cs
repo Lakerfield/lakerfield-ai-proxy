@@ -92,9 +92,32 @@ public class LogsController : ControllerBase
             isHealthy = i.IsHealthy,
             activeConnections = i.ActiveConnections,
             models = i.Models,
+            enabledModels = i.EnabledModels.ToList(),
             lastHealthCheck = i.LastHealthCheck,
         });
         return Ok(instances);
+    }
+
+    // POST /api/instances/{instanceName}/models/{model} — toggle model enabled state
+    [HttpPost("instances/{instanceName}/models/{model}")]
+    public IActionResult ToggleInstanceModel(string instanceName, string model)
+    {
+        var enabled = _registry.ToggleInstanceModel(instanceName, model);
+
+        // Get updated instance info for the response
+        var instances = _registry.GetAllInstances().Select(i => new
+        {
+            name = i.Name,
+            baseUrl = i.BaseUrl,
+            isHealthy = i.IsHealthy,
+            activeConnections = i.ActiveConnections,
+            models = i.Models,
+            enabledModels = i.EnabledModels.ToList(),
+            lastHealthCheck = i.LastHealthCheck,
+        });
+
+        var updatedInstance = instances.FirstOrDefault(i => i.name == instanceName);
+        return Ok(new { enabled, instance = updatedInstance });
     }
 
     // GET /api/logs?date=yyyy-MM-dd&type=requests|errors&limit=100

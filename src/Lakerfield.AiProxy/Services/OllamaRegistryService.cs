@@ -14,14 +14,17 @@ public class OllamaRegistryService
         _logger = logger;
         foreach (var cfg in options.Value.OllamaInstances)
         {
-            _instances.Add(new OllamaInstance
+            var instance = new OllamaInstance
             {
                 Name = cfg.Name,
                 BaseUrl = cfg.BaseUrl,
                 Models = cfg.Models.ToList(),
                 ConfiguredModels = cfg.Models.ToList(),
+                EnabledModels = new HashSet<string>(cfg.Models, StringComparer.OrdinalIgnoreCase),
+                AllSeenModels = new HashSet<string>(cfg.Models, StringComparer.OrdinalIgnoreCase),
                 IsHealthy = true,
-            });
+            };
+            _instances.Add(instance);
         }
         _logger.LogInformation("OllamaRegistryService initialized with {Count} instances", _instances.Count);
     }
@@ -40,7 +43,7 @@ public class OllamaRegistryService
     {
         lock (_lock)
             return _instances
-                .Where(i => i.IsHealthy && i.Models.Contains(model, StringComparer.OrdinalIgnoreCase))
+                .Where(i => i.IsHealthy && i.Models.Contains(model, StringComparer.OrdinalIgnoreCase) && i.EnabledModels.Contains(model))
                 .ToList();
     }
 
@@ -81,16 +84,62 @@ public class OllamaRegistryService
         lock (_lock)
         {
             var instance = _instances.FirstOrDefault(i => i.Name == name);
-            if (instance != null)
+            if (instance == null) return;
+
+            // If specific models were configured for this instance, use them as a whitelist.
+            // Only expose models that the backend reports AND that are in the configured list.
+            // When no models are configured, expose everything the backend reports.
+            var filteredModels = instance.ConfiguredModels.Count > 0
+                ? models.Where(m => instance.ConfiguredModels.Contains(m, StringComparer.OrdinalIgnoreCase))
+                : models;
+            instance.Models = filteredModels.ToList();
+
+            // Track all models we've ever seen from the backend (within whitelist bounds).
+            foreach (var m in filteredModels)
             {
-                // If specific models were configured for this instance, use them as a whitelist.
-                // Only expose models that the backend reports AND that are in the configured list.
-                // When no models are configured, expose everything the backend reports.
-                instance.Models = instance.ConfiguredModels.Count > 0
-                    ? models.Where(m => instance.ConfiguredModels.Contains(m, StringComparer.OrdinalIgnoreCase)).ToList()
-                    : models;
-                instance.LastHealthCheck = DateTime.UtcNow;
+                instance.AllSeenModels.Add(m);
             }
+
+            // Only auto-enable genuinely new models — ones that haven't been seen before.
+            // This preserves user-disabled state: if a model was manually disabled it stays
+            // disabled even if it disappears from Ollama temporarily and is pulled again later.
+            foreach (var m in filteredModels)
+            {
+                if (!instance.AllSeenModels.Contains(m, StringComparer.OrdinalIgnoreCase))
+                {
+                    instance.EnabledModels.Add(m);
+                    instance.AllSeenModels.Add(m);
+                }
+            }
+
+            instance.LastHealthCheck = DateTime.UtcNow;
+        }
+    }
+
+    /// <summary>
+    /// Toggle whether a model is enabled on a specific instance. Returns the new enabled state.
+    /// </summary>
+    public bool ToggleInstanceModel(string name, string model)
+    {
+        lock (_lock)
+        {
+            var instance = _instances.FirstOrDefault(i => i.Name == name);
+            if (instance == null) return false;
+
+            // Model must be present on the instance (configured or dynamically reported) to be toggleable
+            if (!instance.Models.Contains(model, StringComparer.OrdinalIgnoreCase))
+                return instance.EnabledModels.Contains(model);
+
+            var wasEnabled = instance.EnabledModels.Contains(model);
+            if (wasEnabled)
+            {
+                instance.EnabledModels.Remove(model);
+            }
+            else
+            {
+                instance.EnabledModels.Add(model);
+            }
+            return !wasEnabled;
         }
     }
 }

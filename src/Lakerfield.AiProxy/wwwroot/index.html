@@ -49,6 +49,10 @@
         .badge-green { background: #14532d33; color: var(--green); }
         .badge-red { background: #7f1d1d33; color: var(--red); }
         .instance-models { font-size: 0.72rem; color: var(--muted); margin-top: 0.1rem; }
+        .model-toggle-row { display: flex; align-items: center; gap: 0.35rem; font-size: 0.72rem; margin-top: 0.15rem; padding: 0.1rem 0; }
+        .model-toggle-row input[type="checkbox"] { cursor: pointer; accent-color: var(--accent); width: 13px; height: 13px; }
+        .model-toggle-row label { cursor: pointer; user-select: none; color: var(--text); transition: opacity 0.15s; }
+        .model-toggle-row.disabled label { opacity: 0.4; text-decoration: line-through; }
 
         /* Charts */
         .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 0.75rem; }
@@ -810,14 +814,31 @@
         });
 
         // ── Instances ─────────────────────────────────────────────────────────────
+        // Track local enabledModels state per instance for optimistic UI updates
+        const instanceEnabledState = {};
+
         function renderInstances(instances) {
             const grid = document.getElementById('instancesGrid');
             if (!instances || instances.length === 0) {
                 grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">No instances configured</div>';
                 return;
             }
-            grid.innerHTML = instances.map(i => `
-                <div class="instance-card ${i.isHealthy ? 'healthy' : ''}">
+            // Sync local state from server data
+            for (const inst of instances) {
+                instanceEnabledState[inst.name] = new Set(inst.enabledModels || []);
+            }
+
+            grid.innerHTML = instances.map(i => {
+                const modelToggles = (i.models || []).map(model => {
+                    const enabled = (i.enabledModels || []).includes(model);
+                    return `<div class="model-toggle-row">
+                        <input type="checkbox" data-instance="${escHtml(i.name)}" data-model="${escHtml(model)}" ${enabled ? 'checked' : ''} />
+                        <label for="" onmousedown="return false;">${escHtml(model)}</label>
+                    </div>`;
+                }).join('');
+
+                return `
+                <div class="instance-card ${i.isHealthy ? 'healthy' : ''}" data-instance-name="${escHtml(i.name)}">
                     <div style="display:flex;align-items:center;gap:0.5rem;">
                         <span class="instance-name">${escHtml(i.name)}</span>
                         <span class="badge ${i.isHealthy ? 'badge-green' : 'badge-red'}">${i.isHealthy ? 'healthy' : 'offline'}</span>
@@ -827,8 +848,14 @@
                         <span>🔗 ${i.activeConnections} active</span>
                         <span>⏱ ${i.lastHealthCheck ? new Date(i.lastHealthCheck).toLocaleTimeString() : '—'}</span>
                     </div>
-                    <div class="instance-models">${i.models && i.models.length ? i.models.join(', ') : 'no models'}</div>
-                </div>`).join('');
+                    ${modelToggles ? `<div class="instance-models">Models:</div>${modelToggles}` : '<div class="instance-models">no models</div>'}
+                </div>`;
+            }).join('');
+
+            // Wire up checkbox click handlers
+            grid.querySelectorAll('.model-toggle-row input[type="checkbox"]').forEach(cb => {
+                cb.addEventListener('change', handleModelToggle);
+            });
         }
 
         // ── Throughput chart ──────────────────────────────────────────────────────
@@ -865,6 +892,34 @@
                 renderThroughput(m.requestsPerSecondSeries);
                 renderModelTable(m.modelCounts);
             } catch (_) {}
+        }
+
+        // ── Model toggle (enable/disable model on instance) ──────────────────────
+        async function handleModelToggle(e) {
+            const cb = e.target;
+            const instanceName = cb.dataset.instance;
+            const model = cb.dataset.model;
+            const row = cb.closest('.model-toggle-row');
+
+            // Optimistically update visual state (add disabled class if unchecked)
+            if (!cb.checked) {
+                row.classList.add('disabled');
+            } else {
+                row.classList.remove('disabled');
+            }
+
+            try {
+                const r = await fetch(`/api/instances/${encodeURIComponent(instanceName)}/models/${encodeURIComponent(model)}`, { method: 'POST' });
+                if (!r.ok) throw new Error('Failed to toggle');
+                const data = await r.json();
+                // Update local state with server response
+                instanceEnabledState[instanceName] = new Set(data.instance?.enabledModels || []);
+            } catch (err) {
+                // Revert on failure
+                cb.checked = !cb.checked;
+                row.classList.toggle('disabled', !cb.checked);
+                console.error('Toggle failed:', err.message);
+            }
         }
 
         async function fetchInstances() {
