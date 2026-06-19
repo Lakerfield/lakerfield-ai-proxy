@@ -62,6 +62,7 @@ public class RequestLoggingMiddleware
 
         var apiKey = ExtractApiKey(context.Request);
         context.Items["ApiKey"] = apiKey;
+        var clientIp = ExtractClientIp(context);
 
         // Register request body/headers in the in-memory store so they are accessible
         // via the body popup API while the response is still streaming.
@@ -95,6 +96,7 @@ public class RequestLoggingMiddleware
                 Model = model,
                 RoutedTo = routedTo,
                 ApiKey = apiKey,
+                ClientIp = clientIp,
                 Streaming = context.Items["Streaming"] is true,
                 InputTokens = context.Items["InputTokens"] as int?,
                 OutputTokens = context.Items["OutputTokens"] as int?,
@@ -137,5 +139,26 @@ public class RequestLoggingMiddleware
 
         // Truncate to avoid storing full secrets; first 8 chars are sufficient for identification
         return key is { Length: > 8 } ? key[..8] + "…" : key;
+    }
+
+    internal static string? ExtractClientIp(HttpContext context)
+    {
+        // Check X-Forwarded-For first (set by reverse proxies/load balancers)
+        if (context.Request.Headers.TryGetValue("X-Forwarded-For", out var forwardedFor) &&
+            !string.IsNullOrEmpty(forwardedFor))
+        {
+            // X-Forwarded-For may contain a comma-separated list; the first entry is the original client
+            var firstIp = forwardedFor.ToString().Split(',')[0].Trim();
+            if (!string.IsNullOrEmpty(firstIp))
+                return firstIp;
+        }
+
+        // Fall back to X-Real-IP (used by nginx and similar proxies)
+        if (context.Request.Headers.TryGetValue("X-Real-IP", out var realIp) &&
+            !string.IsNullOrEmpty(realIp))
+            return realIp.ToString();
+
+        // Last resort: direct connection remote IP
+        return context.Connection.RemoteIpAddress?.ToString();
     }
 }
