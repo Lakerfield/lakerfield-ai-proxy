@@ -134,6 +134,40 @@
     </header>
 
     <main>
+        <!-- Test Request Section -->
+        <section>
+            <div class="section-title">Test Request</div>
+            <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.75rem; align-items: end; margin-bottom: 0.75rem;">
+                    <div>
+                        <label for="testModel" style="font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 0.25rem;">Model</label>
+                        <select id="testModel" style="width: 100%; padding: 0.4rem 0.6rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.85rem;">
+                            <option value="">Loading models...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="testMessage" style="font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 0.25rem;">Message</label>
+                        <input type="text" id="testMessage" placeholder="Hello, how are you?" style="width: 100%; padding: 0.4rem 0.6rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.85rem;" />
+                    </div>
+                    <div>
+                        <label for="testMaxTokens" style="font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 0.25rem;">Max Tokens</label>
+                        <input type="number" id="testMaxTokens" value="1024" min="1" max="128000" style="width: 100%; padding: 0.4rem 0.6rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.85rem;" />
+                    </div>
+                    <button id="testSendBtn" class="btn" style="white-space: nowrap;">
+                        Send
+                    </button>
+                </div>
+                <div id="testResponse" style="display: none;">
+                    <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem;">Response</div>
+                    <pre id="testResponseContent" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; font-size: 0.8rem; font-family: 'Consolas', 'Courier New', monospace; overflow-x: auto; white-space: pre-wrap; word-break: break-all; color: var(--text); max-height: 300px; overflow-y: auto;"></pre>
+                </div>
+                <div id="testError" style="display: none;">
+                    <div style="font-size: 0.75rem; color: var(--red); margin-bottom: 0.25rem;">Error</div>
+                    <pre id="testErrorContent" style="background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; font-size: 0.8rem; font-family: 'Consolas', 'Courier New', monospace; overflow-x: auto; white-space: pre-wrap; word-break: break-all; color: var(--red);"></pre>
+                </div>
+            </div>
+        </section>
+
         <!-- Overview stats -->
         <section>
             <div class="section-title">Overview</div>
@@ -681,6 +715,92 @@
             a.click();
         });
 
+        // ── Test Request ─────────────────────────────────────────────────────────────
+        async function loadModelsForTest() {
+            try {
+                const r = await fetch('/v1/models');
+                if (!r.ok) return;
+                const data = await r.json();
+                const select = document.getElementById('testModel');
+                if (data.data && data.data.length > 0) {
+                    select.innerHTML = data.data
+                        .map(m => `<option value="${m.id}">${m.id}</option>`)
+                        .join('');
+                } else {
+                    select.innerHTML = '<option value="">No models available</option>';
+                }
+            } catch (_) {}
+        }
+
+        async function sendTestRequest() {
+            const model = document.getElementById('testModel').value;
+            const message = document.getElementById('testMessage').value;
+            const maxTokens = parseInt(document.getElementById('testMaxTokens').value, 10);
+            const responseEl = document.getElementById('testResponse');
+            const errorEl = document.getElementById('testError');
+            const responseContentEl = document.getElementById('testResponseContent');
+            const errorContentEl = document.getElementById('testErrorContent');
+            const sendBtn = document.getElementById('testSendBtn');
+
+            if (!model) {
+                errorContentEl.textContent = 'Please select a model';
+                errorEl.style.display = 'block';
+                responseEl.style.display = 'none';
+                return;
+            }
+
+            if (!message) {
+                errorContentEl.textContent = 'Please enter a message';
+                errorEl.style.display = 'block';
+                responseEl.style.display = 'none';
+                return;
+            }
+
+            if (isNaN(maxTokens) || maxTokens < 1) {
+                errorContentEl.textContent = 'Max Tokens must be a positive number';
+                errorEl.style.display = 'block';
+                responseEl.style.display = 'none';
+                return;
+            }
+
+            sendBtn.disabled = true;
+            sendBtn.textContent = 'Sending...';
+            responseEl.style.display = 'none';
+            errorEl.style.display = 'none';
+
+            try {
+                const r = await fetch('/v1/messages', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: model,
+                        messages: [{ role: 'user', content: message }],
+                        max_tokens: maxTokens
+                    })
+                });
+
+                if (!r.ok) {
+                    const errBody = await r.text();
+                    throw new Error(`HTTP ${r.status}: ${errBody}`);
+                }
+
+                const text = await r.text();
+                responseContentEl.textContent = text;
+                responseEl.style.display = 'block';
+            } catch (err) {
+                errorContentEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.textContent = 'Send';
+            }
+        }
+
+        document.getElementById('testSendBtn').addEventListener('click', sendTestRequest);
+        document.getElementById('testMessage').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendTestRequest();
+        });
+
         // ── Instances ─────────────────────────────────────────────────────────────
         function renderInstances(instances) {
             const grid = document.getElementById('instancesGrid');
@@ -749,6 +869,7 @@
 
         fetchInstances();
         fetchMetrics();
+        loadModelsForTest();
         setInterval(fetchInstances, 10_000);
         setInterval(fetchMetrics, 2_000);
 
