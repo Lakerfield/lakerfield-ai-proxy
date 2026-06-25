@@ -256,21 +256,28 @@ public class ProxyController : ControllerBase
         OllamaInstance? instance = _loadBalancer.SelectInstance(model);
         if (instance == null)
         {
-            Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            var unavailableMessage = !string.IsNullOrEmpty(model)
+            var errorText = !string.IsNullOrEmpty(model)
                 ? $"No healthy Ollama instances available for model '{model}'"
                 : "No healthy Ollama instances available";
-            await Response.WriteAsync(unavailableMessage);
+            _logger.LogWarning("Request {RequestId} rejected: {Error}", requestId, errorText);
+            await _monitor.BroadcastRequestFailed(requestId, errorText);
+            Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            await Response.WriteAsync(errorText);
             return;
         }
 
         int maxRetries = 2; // TODO: make configurable via AiProxyOptions
+        bool anyInstanceSucceeded = false;
         try
         {
             for (int attempt = 0; attempt <= maxRetries; attempt++)
             {
                 var success = await TryForwardToInstance(instance, endpoint, bodyJson, requestId, isStreaming);
-                if (success) return;
+                if (success)
+                {
+                    anyInstanceSucceeded = true;
+                    return;
+                }
 
                 if (attempt < maxRetries)
                 {
@@ -281,18 +288,26 @@ public class ProxyController : ControllerBase
                 }
             }
         }
-        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        finally
         {
-            _logger.LogInformation("Request {RequestId} cancelled by client", requestId);
+            // If no forwarding attempt ever succeeded, ensure listeners know the request ended.
+            // This catches: 1) all attempts failed but an exception escaped the loop
+            //                (e.g., uncaught OperationCanceledException from a different source)
+            //              2) SelectFallbackInstance threw an unexpected exception mid-loop
+            if (!anyInstanceSucceeded)
+            {
+                await _monitor.BroadcastRequestFailed(requestId, "All instances failed");
+            }
+        }
+
+        if (Response.HasStarted)
+        {
+            // A response was already streaming to the client — don't write another one.
             return;
         }
 
-        await _monitor.BroadcastRequestFailed(requestId, "All instances failed");
-        if (!Response.HasStarted)
-        {
-            Response.StatusCode = StatusCodes.Status502BadGateway;
-            await Response.WriteAsync("All Ollama instances failed to handle the request");
-        }
+        Response.StatusCode = StatusCodes.Status502BadGateway;
+        await Response.WriteAsync("All Ollama instances failed to handle the request");
     }
 
     private async Task<bool> TryForwardToInstance(OllamaInstance instance, string endpoint, string? bodyJson, string requestId, bool isStreaming)
